@@ -23,6 +23,9 @@ app = Dash(
     suppress_callback_exceptions=True,
     title=config.APP_TITLE,
     update_title=None,
+    external_stylesheets=[
+        "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css",
+    ],
 )
 server = app.server
 

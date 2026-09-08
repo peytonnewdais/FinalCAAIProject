@@ -14,13 +14,13 @@ FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 THEMES = {
     "light": dict(
         template="plotly_white", surface="#fcfcfb", page="#f9f9f7",
-        ink="#0b0b0b", ink2="#52514e", muted="#898781", grid="#e1e0d9", axis="#c3c2b7",
-        event="#8a8f9c", good="#006300", bad="#d03b3b",
+        ink="#111827", ink2="#403f3c", muted="#898781", grid="#e1e0d9", axis="#c3c2b7",
+        event="#8a8f9c", good="#059669", bad="#dc2626",
     ),
     "dark": dict(
         template="plotly_dark", surface="#1a1a19", page="#0d0d0d",
         ink="#ffffff", ink2="#c3c2b7", muted="#898781", grid="#2c2c2a", axis="#383835",
-        event="#7b8397", good="#0ca30c", bad="#e66767",
+        event="#7b8397", good="#10b981", bad="#f87171",
     ),
 }
 

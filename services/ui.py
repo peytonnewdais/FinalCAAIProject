@@ -1,6 +1,8 @@
 """Small Dash layout helpers shared by the pages (tiles, controls, tables, notices)."""
 from __future__ import annotations
 
+import base64
+
 from dash import dcc, html
 
 GRAPH_CONFIG = {
@@ -26,11 +28,77 @@ def tone(value) -> str:
     return "up" if value > 0 else "down" if value < 0 else ""
 
 
-def tile(label: str, value: str, sub: str | None = None, value_tone: str = "") -> html.Div:
-    children = [html.Div(label, className="label"), html.Div(value, className=f"value {value_tone}".strip())]
+def _spark_points(values: list[float], w: float, h: float, pad: float) -> str:
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1.0
+    n = len(values)
+    step = (w - 2 * pad) / (n - 1) if n > 1 else 0.0
+    return " ".join(
+        f"{pad + i * step:.1f},{h - pad - (v - lo) / span * (h - 2 * pad):.1f}"
+        for i, v in enumerate(values)
+    )
+
+
+def sparkline_uri(values, color: str, width: float = 72, height: float = 28,
+                  stroke: float = 2.2) -> str:
+    """A tiny label-free trend line as a base64 data URI, ready for ``html.Img``."""
+    values = [float(v) for v in values]
+    points = _spark_points(values, width, height, pad=stroke)
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:g} {height:g}" '
+        f'preserveAspectRatio="none">'
+        f'<polyline fill="none" stroke="{color}" stroke-width="{stroke:g}" '
+        f'stroke-linecap="round" stroke-linejoin="round" points="{points}"/>'
+        f'</svg>'
+    )
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+
+def multi_sparkline_uri(series, width: float = 620, height: float = 200) -> str:
+    """Several trend lines on one label-free canvas (decorative hero accent).
+
+    ``series`` is a list of ``(values, color, dash)`` tuples; ``dash`` is ``None``
+    for a solid line or an SVG dash-array string.
+    """
+    all_values = [float(v) for values, _, _ in series for v in values]
+    lo, hi = min(all_values), max(all_values)
+    span = (hi - lo) or 1.0
+    pad = 6.0
+    lines = []
+    for values, color, dash in series:
+        values = [float(v) for v in values]
+        n = len(values)
+        step = (width - 2 * pad) / (n - 1) if n > 1 else 0.0
+        points = " ".join(
+            f"{pad + i * step:.1f},{height - pad - (v - lo) / span * (height - 2 * pad):.1f}"
+            for i, v in enumerate(values)
+        )
+        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+        lines.append(
+            f'<polyline fill="none" stroke="{color}" stroke-width="3" '
+            f'stroke-linecap="round" stroke-linejoin="round"{dash_attr} points="{points}"/>'
+        )
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:g} {height:g}" '
+        f'preserveAspectRatio="none">{"".join(lines)}</svg>'
+    )
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+
+def tile(label: str, value: str, sub: str | None = None, value_tone: str = "",
+         variant: str = "", spark: str | None = None, emphasis: bool = False) -> html.Div:
+    value_cls = f"value {value_tone}".strip()
+    if emphasis:
+        value_cls += " value-xl"
+    value_el = html.Div(value, className=value_cls)
+    if spark:
+        value_el = html.Div(className="value-row", children=[
+            value_el, html.Img(src=spark, className="tile-spark", alt=""),
+        ])
+    children = [html.Div(label, className="label"), value_el]
     if sub:
         children.append(html.Div(sub, className="sub"))
-    return html.Div(className="tile", children=children)
+    return html.Div(className=f"tile {variant}".strip(), children=children)
 
 
 def control(label: str, component, grow: bool = False) -> html.Div:

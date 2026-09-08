@@ -160,7 +160,7 @@ def annual_filings(cik: int, count: int = 5) -> list[dict]:
 
 
 def _decode(content: bytes) -> str:
-    """EDGAR documents are UTF-8 or Windows-1252; never let a wrong guess mangle quotes."""
+    """EDGAR  documents are UTF-8 or Windows-1252; never let a wrong guess mangle quotes."""
     try:
         return content.decode("utf-8")
     except UnicodeDecodeError:

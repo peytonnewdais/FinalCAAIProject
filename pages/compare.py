@@ -56,8 +56,17 @@ def layout():
             html.Div(className="grid-2", children=[
                 html.Div(className="card", children=dcc.Graph(
                     id="cmp-price", config=GRAPH_CONFIG, style={"height": "420px"})),
-                html.Div(className="card", children=dcc.Graph(
-                    id="cmp-mentions", config=GRAPH_CONFIG, style={"height": "420px"})),
+                html.Div(className="card", children=[
+                    dcc.Graph(id="cmp-mentions", config=GRAPH_CONFIG, style={"height": "420px"}),
+                    html.P(
+                        "How this is calculated: we count every occurrence of artificial "
+                        "intelligence, AI, machine learning, generative AI, large language model "
+                        "/ LLM, deep learning, and neural network in the filing text, then divide "
+                        "by the document's word count and scale to a per-10,000-word rate so "
+                        "reports of different lengths can be compared.",
+                        className="muted small", style={"marginTop": "12px"},
+                    ),
+                ]),
             ]),
             html.Div(id="cmp-rd-card", className="card", children=dcc.Graph(
                 id="cmp-rd", config=GRAPH_CONFIG, style={"height": "340px"})),

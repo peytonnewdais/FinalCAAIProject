@@ -3,6 +3,8 @@
 Every request carries the SEC-required User-Agent and is throttled well below the
 10 requests/second fair-access limit. Parsed filings are cached on disk under
 cache/edgar so a company is only downloaded once.
+
+AI usage: see docs/AI_USAGE.md.
 """
 from __future__ import annotations
 

@@ -1,4 +1,7 @@
-"""Shared constants: industries, tickers, palette, events, and settings read from .env."""
+"""Shared constants: industries, tickers, palette, events, and settings read from .env.
+
+AI usage: see docs/AI_USAGE.md.
+"""
 from __future__ import annotations
 
 import os
@@ -51,11 +54,17 @@ TICKER_INDUSTRY = {t: ind for ind, tickers in INDUSTRIES.items() for t in ticker
 COMPANY_TICKERS = [t for tickers in INDUSTRIES.values() for t in tickers]
 TICKERS = sorted(set(COMPANY_TICKERS) | {BENCHMARK_TICKER})
 
-# Categorical palette, one slot per industry in fixed order. Both columns were run
-# through the dataviz palette validator (CVD separation, lightness band, contrast)
-# against the light and dark chart surfaces. Colors follow the entity, never rank.
+# Categorical palette, one slot per industry in fixed order. Colors follow the entity,
+# never its rank, so filtering never repaints the survivors.
+#
+# Every swatch clears WCAG 1.4.11's 3:1 against its chart surface; three light-mode colors
+# were darkened to get there (they sat at 2.1-2.7:1). This is the *default* palette and it
+# is tuned for contrast and for the team's visual identity, NOT for color blindness - eight
+# hues cannot be told apart under dichromacy no matter how they are chosen. Users who need
+# that pick colorblind mode, which swaps in services/a11y.PALETTE_CVD and adds dash and
+# marker encoding. Both palettes are re-checked by tests/test_a11y.py.
 PALETTE = {
-    "light": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
+    "light": ["#1f73d0", "#eb6834", "#00a571", "#c88200", "#d96e97", "#008300", "#4a3aa7", "#e34948"],
     "dark":  ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
 }
 

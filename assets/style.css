@@ -10,13 +10,19 @@
   --surface-2: #f1f0ec;
   --ink: #0b0b0b;
   --ink-2: #52514e;
-  --muted: #898781;
+  /* --muted carries real text (tile labels, table headers, tick labels), so it clears
+     4.5:1 on both --surface and --page. The old #898781 sat at 3.4:1 and failed. */
+  --muted: #74726c;
   --grid: #e1e0d9;
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.10);
-  --accent: #2a78d6;
-  --accent-soft: rgba(42, 120, 214, 0.12);
+  /* --border-strong outlines interactive controls, which WCAG 1.4.11 holds to 3:1
+     against both their own fill and the page behind them. */
+  --border-strong: #92908a;
+  --accent: #1f73d0;
+  --accent-soft: rgba(31, 115, 208, 0.12);
   --on-accent: #ffffff;
+  --focus: #1f73d0;
   --good: #006300;
   --bad: #d03b3b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.06);
@@ -34,9 +40,13 @@
     --grid: #2c2c2a;
     --axis: #383835;
     --border: rgba(255, 255, 255, 0.10);
+    --border-strong: #676660;
     --accent: #3987e5;
     --accent-soft: rgba(57, 135, 229, 0.18);
-    --on-accent: #ffffff;
+    /* Near-black, not white: white text on this blue is only 3.6:1, and darkening the
+       blue enough to fix that would drop it below 4.5:1 as link text on the dark page. */
+    --on-accent: #0d0d0d;
+    --focus: #7ab5ff;
     --good: #0ca30c;
     --bad: #e66767;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.35);
@@ -54,9 +64,11 @@
   --grid: #2c2c2a;
   --axis: #383835;
   --border: rgba(255, 255, 255, 0.10);
+  --border-strong: #676660;
   --accent: #3987e5;
   --accent-soft: rgba(57, 135, 229, 0.18);
-  --on-accent: #ffffff;
+  --on-accent: #0d0d0d;
+  --focus: #7ab5ff;
   --good: #0ca30c;
   --bad: #e66767;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.35);
@@ -83,6 +95,14 @@
 }
 
 /* ------------------------------------------------------------------ base */
+/* html keeps the browser's own font size so a user who has raised their default gets
+   larger text everywhere (WCAG 1.4.4). body then sets the design's ratio in rem, which
+   scales with that preference instead of overriding it with a hard 15px. */
+html {
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -90,10 +110,11 @@ html, body {
   background: var(--page);
   color: var(--ink-2);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
+
+body { font-size: 0.9375rem; }
 
 #react-entry-point, #_dash-app-content { min-height: 100%; }
 
@@ -110,9 +131,63 @@ p { margin: 0 0 0.8em; }
 p:last-child { margin-bottom: 0; }
 
 .muted { color: var(--muted); }
-.small { font-size: 0.85rem; }
+.small { font-size: 0.875rem; }
+/* .up / .down tint a number that already carries a + or - sign, so the colour is a
+   second cue rather than the only one (WCAG 1.4.1 Use of Color). */
 .up { color: var(--good); }
 .down { color: var(--bad); }
+
+/* ------------------------------------------------------------------ a11y utilities */
+/* Visible to screen readers, not to eyes. Used for chart descriptions, table captions,
+   the "(current page)" nav marker, and the live-region announcer. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* WCAG 2.4.1: the first tab stop, off-screen until it takes focus. */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -60px;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: 0 0 8px 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 0;
+  text-decoration: none;
+}
+
+/* WCAG 2.4.7 Focus Visible. :focus-visible keeps the ring for keyboard users without
+   ringing every mouse click. The ring clears 3:1 against the surfaces behind it. */
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* The skip target is programmatically focusable (tabindex="-1") but should not draw a
+   ring when the skip link sends focus into it. */
+#main-content:focus,
+#main-content:focus-visible {
+  outline: none;
+}
+/* Nothing important should hide under the sticky header when focused or linked to. */
+#main-content,
+:target {
+  scroll-margin-top: 84px;
+}
 
 /* ------------------------------------------------------------------ chrome */
 .topbar {
@@ -166,10 +241,19 @@ p:last-child { margin-bottom: 0; }
   white-space: nowrap;
 }
 .nav-link:hover { background: var(--surface-2); text-decoration: none; color: var(--ink); }
-.nav-link.active { background: var(--accent-soft); color: var(--accent); }
+/* Accent text on the tinted pill only reached 3.96:1, so the current page uses full-strength
+   ink plus an underline. The state is also carried by the pill, the underline, and the
+   visually hidden "(current page)" text - never by colour alone. */
+.nav-link.active {
+  background: var(--accent-soft);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .theme-toggle {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
   color: var(--ink);
   padding: 7px 12px;
@@ -178,8 +262,16 @@ p:last-child { margin-bottom: 0; }
   font-size: 0.9rem;
   cursor: pointer;
   white-space: nowrap;
+  min-height: 32px;
 }
 .theme-toggle:hover { background: var(--surface-2); }
+/* An engaged toggle should look engaged, not just say so - the label carries the state for
+   screen readers, this carries it for everyone else. */
+:root[data-cvd="on"] #cvd-toggle {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  font-weight: 600;
+}
 
 .page {
   max-width: 1250px;
@@ -299,7 +391,7 @@ p:last-child { margin-bottom: 0; }
 
 .btn {
   display: inline-block;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
   color: var(--ink);
   padding: 9px 16px;
@@ -308,6 +400,7 @@ p:last-child { margin-bottom: 0; }
   font-weight: 600;
   cursor: pointer;
   line-height: 1.2;
+  min-height: 40px;
 }
 .btn:hover { background: var(--surface-2); text-decoration: none; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -357,17 +450,36 @@ table.data tr:hover td { background: var(--surface-2); }
   border-radius: 3px;
   margin-right: 8px;
   vertical-align: middle;
+  /* Outlined so a pale swatch still has a shape against the row behind it. The swatch only
+     repeats the industry name it sits next to, so it is decorative, not information. */
+  border: 1px solid var(--border-strong);
 }
+
+/* figure wraps each chart with its screen-reader caption; it must not add layout of its own */
+figure.chart {
+  margin: 0;
+  padding: 0;
+}
+
+.footer-link { color: var(--muted); text-decoration: underline; }
+.footer-link:hover { color: var(--ink); }
+
+/* definition list on the accessibility page */
+.a11y-list dt { font-weight: 600; color: var(--ink); margin-top: 14px; }
+.a11y-list dt:first-child { margin-top: 0; }
+.a11y-list dd { margin: 4px 0 0; color: var(--ink-2); }
 
 .steps { padding-left: 20px; }
 .steps li { margin-bottom: 8px; }
 
 /* ------------------------------------------------------------------ Dash components */
 .dash-dropdown, .dash-dropdown * { font-family: inherit; }
+/* --axis is a hairline meant for chart furniture; as a form-control boundary it only
+   reached 1.75:1, so inputs take --border-strong instead (WCAG 1.4.11). */
 .dash-dropdown-wrapper, .dash-dropdown-trigger, .dash-dropdown-search-container {
   background: var(--surface);
   color: var(--ink);
-  border-color: var(--axis);
+  border-color: var(--border-strong);
 }
 .dash-dropdown-trigger, .dash-dropdown-search-container { border-radius: 9px; }
 .dash-dropdown-value, .dash-dropdown-search, .dash-dropdown-search input { color: var(--ink); background: transparent; }
@@ -418,4 +530,54 @@ table.data tr:hover td { background: var(--surface-2); }
   .topbar-inner { gap: 12px; }
   .grid-2 { grid-template-columns: 1fr; }
   .page { padding: 20px 16px 40px; }
+}
+
+/* Content must reflow rather than scroll sideways down to 320px (WCAG 1.4.10). The two-column
+   grid's 420px minimum would force a horizontal scrollbar on the narrowest phones. */
+@media (max-width: 460px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .card-grid { grid-template-columns: 1fr; }
+  .tiles { grid-template-columns: 1fr; }
+  .topbar-inner { flex-wrap: wrap; }
+}
+
+/* ------------------------------------------------------------------ user preferences */
+/* WCAG 2.3.3: honour a system request for less motion. Transitions become instant rather
+   than merely faster, and the card lift is dropped entirely. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .link-card:hover { transform: none; }
+}
+
+/* Windows High Contrast / forced-colors: the OS replaces our palette entirely, so borders
+   that relied on a custom property would disappear. Ask for system colours explicitly and
+   keep every boundary and focus ring visible. */
+@media (forced-colors: active) {
+  .card,
+  .tile,
+  .link-card,
+  .btn,
+  .theme-toggle,
+  table.data th,
+  table.data td {
+    border: 1px solid CanvasText;
+  }
+  .nav-link.active {
+    box-shadow: none;
+    border-bottom: 2px solid Highlight;
+  }
+  :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+  .swatch {
+    forced-color-adjust: none;   /* the swatch IS its colour; let it keep it */
+  }
 }

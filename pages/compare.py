@@ -1,4 +1,7 @@
-"""Compare page: two companies, their AI language on SEC EDGAR, and their stock returns."""
+"""Compare page: two companies, their AI language on SEC EDGAR, and their stock returns.
+
+AI usage: see docs/AI_USAGE.md.
+"""
 from __future__ import annotations
 
 import dash
@@ -8,7 +11,8 @@ from dash import Input, Output, State, callback, dcc, html
 
 from services import ai_summary, config, edgar, theme
 from services.market_data import period_start, price_stats, rebase, ticker_series
-from services.ui import GRAPH_CONFIG, control, notice, num, page_head, pct, summary_block, table, tile, tone
+from services.ui import (GRAPH_CONFIG, chart, control, describe_ranked, notice, num, page_head,
+                         pct, summary_block, table, tile, tone)
 
 dash.register_page(__name__, path="/compare", name="Compare stocks",
                    title=f"Compare stocks | {config.APP_TITLE}")
@@ -50,14 +54,19 @@ def layout():
 
         dcc.Store(id="cmp-data"),
         html.Div(id="cmp-error"),
+        # Announces that a run finished, for users who cannot see the charts repaint.
+        html.Div(id="cmp-status", className="sr-only", role="status",
+                 **{"aria-live": "polite", "aria-atomic": "true"}),
 
-        dcc.Loading(type="circle", color="#2a78d6", delay_show=300, children=[
+        dcc.Loading(type="circle", color="#1f73d0", delay_show=300, children=[
             html.Div(id="cmp-tiles", className="tiles"),
             html.Div(className="grid-2", children=[
-                html.Div(className="card", children=dcc.Graph(
-                    id="cmp-price", config=GRAPH_CONFIG, style={"height": "420px"})),
+                html.Div(className="card", children=chart(dcc.Graph(
+                    id="cmp-price", config=GRAPH_CONFIG, style={"height": "420px"}),
+                    "cmp-price-desc")),
                 html.Div(className="card", children=[
-                    dcc.Graph(id="cmp-mentions", config=GRAPH_CONFIG, style={"height": "420px"}),
+                    chart(dcc.Graph(id="cmp-mentions", config=GRAPH_CONFIG,
+                                    style={"height": "420px"}), "cmp-mentions-desc"),
                     html.P(
                         "How this is calculated: we count every occurrence of artificial "
                         "intelligence, AI, machine learning, generative AI, large language model "
@@ -68,13 +77,13 @@ def layout():
                     ),
                 ]),
             ]),
-            html.Div(id="cmp-rd-card", className="card", children=dcc.Graph(
-                id="cmp-rd", config=GRAPH_CONFIG, style={"height": "340px"})),
+            html.Div(id="cmp-rd-card", className="card", children=chart(dcc.Graph(
+                id="cmp-rd", config=GRAPH_CONFIG, style={"height": "340px"}), "cmp-rd-desc")),
         ]),
 
         html.Div(className="card", children=[
             html.H3("Claude's read"),
-            dcc.Loading(type="dot", color="#2a78d6", delay_show=300,
+            dcc.Loading(type="dot", color="#1f73d0", delay_show=300,
                         children=html.Div(id="cmp-summary")),
         ]),
 
@@ -145,18 +154,27 @@ def _latest_and_first(profile: dict):
     Output("cmp-rd", "figure"),
     Output("cmp-rd-card", "style"),
     Output("cmp-filings", "children"),
+    Output("cmp-price-desc", "children"),
+    Output("cmp-mentions-desc", "children"),
+    Output("cmp-rd-desc", "children"),
+    Output("cmp-status", "children"),
     Input("cmp-data", "data"),
     Input("theme", "data"),
+    Input("cvd", "data"),
 )
-def render(data, theme_key):
+def render(data, theme_key, cvd):
     if not data:
         empty = theme.empty(theme_key, "Run an analysis to see results")
-        return [], empty, empty, empty, {"display": "none"}, None
+        waiting = "No analysis has been run yet."
+        return [], empty, empty, empty, {"display": "none"}, None, waiting, waiting, waiting, ""
 
     a, b = data["a"], data["b"]
     pa, pb = data["profiles"][a], data["profiles"][b]
     stats = data["stats"]
-    color_a, color_b = theme.slot(theme_key, 0), theme.slot(theme_key, 1)
+    color_a = theme.slot(theme_key, 0, cvd)
+    color_b = theme.slot(theme_key, 1, cvd)
+    # Colorblind mode separates the two companies by line pattern as well as hue.
+    dash_a, dash_b = ("solid", "dot") if theme.resolve_cvd(cvd) else ("solid", "solid")
     t = theme.tokens(theme_key)
 
     # --- tiles
@@ -178,7 +196,7 @@ def render(data, theme_key):
     # --- price chart (one axis, everything indexed to 100 at the period start)
     start = pd.Timestamp(data["start"])
     fig_price = go.Figure()
-    for ticker, color, dash_style in ((a, color_a, "solid"), (b, color_b, "solid"),
+    for ticker, color, dash_style in ((a, color_a, dash_a), (b, color_b, dash_b),
                                       (config.BENCHMARK_TICKER, t["ink"], "dash")):
         series = rebase(ticker_series(ticker, start))
         label = config.BENCHMARK if ticker == config.BENCHMARK_TICKER else f"{ticker} · {config.COMPANY_NAMES[ticker]}"
@@ -194,6 +212,8 @@ def render(data, theme_key):
 
     # --- AI mentions per 10k words by fiscal year
     fig_mentions = go.Figure()
+    # Bars are grouped and labeled per year, so pattern fills would add clutter without
+    # adding information; the category axis already separates them.
     for profile, color in ((pa, color_a), (pb, color_b)):
         fig_mentions.add_trace(go.Bar(
             x=[f"FY{f['fiscal_year']}" for f in profile["filings"]],
@@ -215,7 +235,8 @@ def render(data, theme_key):
     # --- R&D intensity (only when at least one company reports it)
     fig_rd = go.Figure()
     has_rd = False
-    for profile, color in ((pa, color_a), (pb, color_b)):
+    for profile, color, dash_style, symbol in ((pa, color_a, dash_a, "circle"),
+                                               (pb, color_b, dash_b, "square")):
         points = [(f["fiscal_year"], f["financials"]["rd_pct_of_revenue"]) for f in profile["filings"]
                   if f.get("financials") and f["financials"].get("rd_pct_of_revenue") is not None]
         if not points:
@@ -224,7 +245,8 @@ def render(data, theme_key):
         fig_rd.add_trace(go.Scatter(
             x=[f"FY{y}" for y, _ in points], y=[v for _, v in points],
             name=f"{profile['ticker']} · {profile['name']}", mode="lines+markers",
-            line=dict(color=color, width=2), marker=dict(size=9),
+            line=dict(color=color, width=2, dash=dash_style),
+            marker=dict(size=9, symbol=symbol),
             hovertemplate="%{x}: %{y:.1f}% of revenue<extra>" + profile["ticker"] + "</extra>",
         ))
     fig_rd.update_yaxes(title="R&D as % of revenue", rangemode="tozero")
@@ -250,9 +272,49 @@ def render(data, theme_key):
         ["Company", "Fiscal year", "Form", "Filed", "Words", "AI mentions", "Per 10k words",
          "R&D % of revenue", "Source"],
         rows, numeric_from=4,
+        caption=f"Annual reports analyzed for {a} and {b}, with AI mention counts and R&D "
+                f"as a share of revenue",
     )
 
-    return tiles, fig_price, fig_mentions, fig_rd, rd_style, filings_table
+    # --- text alternatives (WCAG 1.1.1) for the three figures above
+    price_desc = describe_ranked(
+        f"Line chart. Share price rebased to 100 at the start of {data['period_label'].lower()}. "
+        f"Total return over the period:",
+        [(a, stats[a].get("total_return_pct") or 0.0),
+         (b, stats[b].get("total_return_pct") or 0.0),
+         ("S&P 500", stats["SPY"].get("total_return_pct") or 0.0)],
+        unit="%", digits=1,
+    )
+    mentions_desc = " ".join(
+        describe_ranked(
+            f"{profile['ticker']}, {profile['name']}, AI mentions per 10,000 words by fiscal year:",
+            [(f"FY{f['fiscal_year']}", f["mentions_per_10k_words"]) for f in profile["filings"]],
+            digits=1,
+        )
+        for profile in (pa, pb)
+    )
+    mentions_desc = "Grouped bar chart. " + mentions_desc
+    if has_rd:
+        rd_desc = " ".join(
+            describe_ranked(
+                f"{profile['ticker']} R&D as a percentage of revenue by fiscal year:",
+                [(f"FY{f['fiscal_year']}", f["financials"]["rd_pct_of_revenue"])
+                 for f in profile["filings"]
+                 if f.get("financials") and f["financials"].get("rd_pct_of_revenue") is not None],
+                unit="%", digits=1,
+            )
+            for profile in (pa, pb)
+        )
+        rd_desc = "Line chart. " + rd_desc
+    else:
+        rd_desc = "Neither company reports R&D expense in XBRL, so this chart is hidden."
+
+    status = (f"Analysis complete. {a} versus {b} over {data['period_label'].lower()}. "
+              f"{a} returned {pct(stats[a].get('total_return_pct'))}, "
+              f"{b} returned {pct(stats[b].get('total_return_pct'))}.")
+
+    return (tiles, fig_price, fig_mentions, fig_rd, rd_style, filings_table,
+            price_desc, mentions_desc, rd_desc, status)
 
 
 # ----------------------------------------------------------------- Claude summary

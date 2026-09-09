@@ -1,4 +1,7 @@
-"""Forecast page: a drift-and-volatility cone for every industry index."""
+"""Forecast page: a drift-and-volatility cone for every industry index.
+
+AI usage: see docs/AI_USAGE.md.
+"""
 from __future__ import annotations
 
 import dash
@@ -9,7 +12,8 @@ from plotly.subplots import make_subplots
 from services import ai_summary, config, theme
 from services.forecast import DRIFT_MODES, LOOKBACKS, forecast_all
 from services.market_data import industry_index, scorecard
-from services.ui import GRAPH_CONFIG, control, notice, num, page_head, pct, summary_block, table
+from services.ui import (GRAPH_CONFIG, chart, control, describe_ranked, notice, num, page_head,
+                         pct, summary_block, table)
 
 dash.register_page(__name__, path="/forecast", name="Forecast",
                    title=f"Forecast | {config.APP_TITLE}")
@@ -42,15 +46,17 @@ def layout():
                     id="fc-drift", value="half",
                     options=[{"label": v, "value": k} for k, v in DRIFT_MODES.items()])),
             ]),
-            html.Div(className="slider-wrap", children=[
-                html.Label("Horizon"),
-                dcc.Slider(id="fc-horizon", min=3, max=24, step=3, value=12,
-                           marks={m: f"{m} mo" for m in (3, 6, 9, 12, 15, 18, 21, 24)}),
-            ]),
+            html.Div(className="slider-wrap", role="group",
+                     **{"aria-labelledby": "fc-horizon-label"}, children=[
+                         html.Label("Horizon", id="fc-horizon-label"),
+                         dcc.Slider(id="fc-horizon", min=3, max=24, step=3, value=12,
+                                    marks={m: f"{m} mo" for m in (3, 6, 9, 12, 15, 18, 21, 24)}),
+                     ]),
         ]),
 
-        html.Div(className="card", children=dcc.Graph(
-            id="fc-chart", config=GRAPH_CONFIG, style={"height": "72vh", "minHeight": "560px"})),
+        html.Div(className="card", children=chart(dcc.Graph(
+            id="fc-chart", config=GRAPH_CONFIG, style={"height": "72vh", "minHeight": "560px"}),
+            "fc-chart-desc")),
 
         html.Div(className="card", children=[
             html.H3("Forecast table"),
@@ -120,16 +126,18 @@ def _add_series(fig, history, paths, color, name, t, row=None, col=None, legend=
 @callback(
     Output("fc-chart", "figure"),
     Output("fc-table", "children"),
+    Output("fc-chart-desc", "children"),
     Input("fc-view", "value"),
     Input("fc-horizon", "value"),
     Input("fc-lookback", "value"),
     Input("fc-drift", "value"),
     Input("theme", "data"),
+    Input("cvd", "data"),
 )
-def update_forecast(view, horizon, lookback, drift, theme_key):
+def update_forecast(view, horizon, lookback, drift, theme_key, cvd):
     index = industry_index()
     results = forecast_all(index, int(horizon), lookback, drift)
-    colors = theme.industry_colors(theme_key)
+    colors = theme.industry_colors(theme_key, cvd)
     t = theme.tokens(theme_key)
     names = list(index.columns)
 
@@ -170,8 +178,23 @@ def update_forecast(view, horizon, lookback, drift, theme_key):
         ["Index", "Today", "Since boom", "Ann. drift used", "Ann. volatility",
          f"Median in {horizon} mo", "10th pct", "90th pct", "P(higher)"],
         rows,
+        caption=f"Forecast statistics for every industry index over {horizon} months, "
+                f"using {LOOKBACKS[lookback].lower()} and {DRIFT_MODES[drift].lower()}",
     )
-    return fig, forecast_table
+
+    shown = names if view == "all" else [view]
+    description = describe_ranked(
+        f"Forecast cone chart. {'All ' + str(len(names)) + ' indices' if view == 'all' else view}, "
+        f"projected {horizon} months using {LOOKBACKS[lookback].lower()} and "
+        f"{DRIFT_MODES[drift].lower()}. Median projected change:",
+        [(name, results[name][1]["median_change_pct"]) for name in shown],
+        unit="%", digits=1,
+    )
+    description += " " + describe_ranked(
+        "Probability each index ends higher than today:",
+        [(name, results[name][1]["prob_gain_pct"]) for name in shown], unit="%",
+    )
+    return fig, forecast_table, description
 
 
 @callback(

@@ -1,8 +1,10 @@
-"""Price data: yfinance download with a once-a-day disk cache, industry indices, stats."""
+"""Price data: yfinance download with a once-a-day disk cache, industry indices, stats.
+
+AI usage: see docs/AI_USAGE.md.
+"""
 from __future__ import annotations
 
 import datetime as dt
-from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -13,31 +15,44 @@ from .config import (BASELINE_START, BENCHMARK, BENCHMARK_TICKER, BOOM_START, CA
 
 TRADING_DAYS = 252
 
+_cache: dict = {"path": None, "prices": None}
+_industry_cache: dict = {"path": None, "index": None}
+
 
 def _cache_path() -> "Path":
     return CACHE_DIR / f"prices_{dt.date.today():%Y-%m-%d}.pkl"
 
 
-@lru_cache(maxsize=1)
 def load_prices() -> pd.DataFrame:
-    """Adjusted daily closes for every ticker since HISTORY_START (columns = tickers)."""
+    """Adjusted daily closes for every ticker since HISTORY_START (columns = tickers).
+
+    Re-downloads once per calendar day (a fresh ``prices_<today>.pkl``), and also
+    whenever an already-warm in-memory copy has rolled past midnight — so a
+    long-running server process doesn't keep serving yesterday's cache forever.
+    """
     path = _cache_path()
+    if _cache["path"] == path and _cache["prices"] is not None:
+        return _cache["prices"]
+
     if path.exists():
-        return pd.read_pickle(path)
+        close = pd.read_pickle(path)
+    else:
+        raw = yf.download(TICKERS, start=HISTORY_START, auto_adjust=True, progress=False, threads=True)
+        if raw is None or raw.empty:
+            raise RuntimeError("yfinance returned no data. Check your internet connection and retry.")
+        close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]]
+        close = close.sort_index().ffill()
+        close = close.dropna(axis=1, how="all")
+        close.index = pd.to_datetime(close.index)
+        close.index.name = "Date"
+        close.columns.name = None
 
-    raw = yf.download(TICKERS, start=HISTORY_START, auto_adjust=True, progress=False, threads=True)
-    if raw is None or raw.empty:
-        raise RuntimeError("yfinance returned no data. Check your internet connection and retry.")
-    close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]]
-    close = close.sort_index().ffill()
-    close = close.dropna(axis=1, how="all")
-    close.index = pd.to_datetime(close.index)
-    close.index.name = "Date"
-    close.columns.name = None
+        for old in CACHE_DIR.glob("prices_*.pkl"):
+            old.unlink(missing_ok=True)
+        close.to_pickle(path)
 
-    for old in CACHE_DIR.glob("prices_*.pkl"):
-        old.unlink(missing_ok=True)
-    close.to_pickle(path)
+    _cache["path"] = path
+    _cache["prices"] = close
     return close
 
 
@@ -46,9 +61,12 @@ def rebase(frame):
     return frame / frame.iloc[0] * 100
 
 
-@lru_cache(maxsize=1)
 def industry_index() -> pd.DataFrame:
     """Equal-weight rebased index per industry (=100 on BASELINE_START) plus the benchmark."""
+    path = _cache_path()
+    if _industry_cache["path"] == path and _industry_cache["index"] is not None:
+        return _industry_cache["index"]
+
     close = load_prices().loc[BASELINE_START:].dropna(how="any")
     norm = rebase(close)
     index = pd.DataFrame({
@@ -57,6 +75,9 @@ def industry_index() -> pd.DataFrame:
     })
     index[BENCHMARK] = norm[BENCHMARK_TICKER]
     index.index.name = "Date"
+
+    _industry_cache["path"] = path
+    _industry_cache["index"] = index
     return index
 
 

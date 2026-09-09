@@ -1,20 +1,40 @@
-/* Runs before Dash renders: pick the theme so the first paint is already correct.
-   dcc.Store(id="theme", storage_type="local") keeps its value in
-   localStorage["theme"] as JSON, so seeding that key here means the store
-   (and every chart callback) starts with a concrete "light" / "dark" value. */
+/* Runs before Dash renders: pick the display modes so the first paint is already correct.
+   dcc.Store(id="theme") and dcc.Store(id="cvd") use storage_type="local", which keeps their
+   values in localStorage as JSON, so seeding those keys here means the stores (and every
+   chart callback) start with a concrete value instead of null. */
 (function () {
-  var theme = null;
-  try {
-    var stored = window.localStorage.getItem("theme");
-    theme = stored ? JSON.parse(stored) : null;
-    if (theme !== "light" && theme !== "dark") {
-      var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-      theme = prefersDark ? "dark" : "light";
-      window.localStorage.setItem("theme", JSON.stringify(theme));
-      window.localStorage.setItem("theme-timestamp", String(Date.now()));
+  function seed(key, isValid, fallback) {
+    var value = null;
+    try {
+      var stored = window.localStorage.getItem(key);
+      value = stored ? JSON.parse(stored) : null;
+      if (!isValid(value)) {
+        value = fallback();
+        window.localStorage.setItem(key, JSON.stringify(value));
+        window.localStorage.setItem(key + "-timestamp", String(Date.now()));
+      }
+    } catch (err) {
+      value = fallback();
     }
-  } catch (err) {
-    theme = "light";
+    return value;
   }
+
+  var theme = seed(
+    "theme",
+    function (v) { return v === "light" || v === "dark"; },
+    function () {
+      var prefersDark = window.matchMedia
+        && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      return prefersDark ? "dark" : "light";
+    }
+  );
+
+  var cvd = seed(
+    "cvd",
+    function (v) { return v === true || v === false; },
+    function () { return false; }
+  );
+
   document.documentElement.setAttribute("data-theme", theme);
+  document.documentElement.setAttribute("data-cvd", cvd === true ? "on" : "off");
 })();

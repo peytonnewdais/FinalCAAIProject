@@ -4,6 +4,8 @@ Model: daily log returns over a lookback window give a drift (mu) and volatility
 (sigma). Future log-price is normal with mean mu*t and variance sigma^2*t, which
 yields closed-form quantile paths (a lognormal "volatility cone"). The drift is
 the fragile input, so the page exposes three drift assumptions side by side.
+
+AI usage: see docs/AI_USAGE.md.
 """
 from __future__ import annotations
 

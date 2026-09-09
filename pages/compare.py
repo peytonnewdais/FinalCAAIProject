@@ -113,6 +113,14 @@ def layout():
     ])
 
 
+# This callback does all the slow network work once - EDGAR filings and
+# price history for both picks plus the S&P 500 - and stashes a plain dict in the "analysis"
+# store. show_results and write_summary redraw from that store and never re-fetch.
+#
+# Everything in the returned dict must be JSON-serializable because it lives in a dcc.Store,
+# hence str(start.date()) rather than a Timestamp. On any failure we write None to the store
+# (downstream reads that as "nothing to show") and put a message in "error-message";
+# on success we clear the error. n_clicks is only the trigger.
 @callback(
     Output("analysis", "data"),
     Output("error-message", "children"),
@@ -228,7 +236,10 @@ def show_results(data):
     mentions_fig.update_yaxes(title="Mentions per 10,000 words", rangemode="tozero",
                               gridcolor="#e1e0d9")
 
-    # --- the table of every filing we read
+    # --- one row per filing we read, all of company A's years then all of company B's
+    # (not paired by year - the two companies can have different filing histories). The
+    # "num" class right-aligns numeric cells; the header loop below tags columns 4+ with
+    # it to match.
     header = ["Company", "Fiscal year", "Form", "Filed", "Words", "AI mentions",
               "Per 10k words", "Source"]
     rows = []
@@ -255,6 +266,12 @@ def show_results(data):
     return tiles, price_fig, mentions_fig, table
 
 
+# The only network call on this page after run_analysis. It re-runs whenever
+# the "analysis" store changes and reads straight from it - no re-fetch. Every way the Claude
+# call can fail (package missing, no API key, rate limit, API error) arrives as
+# SummaryUnavailable and is shown as a plain notice rather than crashing the callback.
+# ai_summary caches answers on disk keyed by a hash of model + effort + prompt, so a repeated
+# comparison is free and gets tagged "(cached)"; answer["model"] is what the API actually ran.
 @callback(Output("claude-summary", "children"), Input("analysis", "data"))
 def write_summary(data):
     """Ask Claude to compare the two companies once the data is ready."""

@@ -7,6 +7,15 @@ Accessibility: see docs/ACCESSIBILITY.md. Two user-controlled display modes live
 light/dark theme and colorblind mode - each stored in localStorage and stamped onto <html>
 so both CSS and every Plotly figure can respond to them.
 
+Application architecture
+------------------------
+# ``app.py`` contains the application shell and shared layout.
+# ``pages/`` contains the user-facing pages:
+  home, industries, compare, and forecast.
+# ``services/`` contains shared configuration, data loading, API clients,
+  calculations, and caching logic.
+# ``assets/`` contains global CSS and JavaScript files.
+
 AI usage: see docs/AI_USAGE.md.
 """
 from __future__ import annotations
@@ -15,7 +24,9 @@ from dash import Dash, Input, Output, State, clientside_callback, dcc, html, pag
 
 from services import config
 from services.market_data import load_prices
-
+# Navigation routes used to build the shared header.
+# Each tuple countains: (URL path, visible link label).
+# The order here controls the order of the navigation links.
 NAV = [
     ("/", "Home"),
     ("/industries", "Industries"),
@@ -23,6 +34,12 @@ NAV = [
     ("/forecast", "Forecast"),
 ]
 
+#----------------------------------------------------------------------------------------------------------------
+# Create the main Dash application object. This object connects the shared 
+# layout, page modules, callbacks, metadata, and underlying Flask server.
+#
+# The application uses Dash Pages for multi-page navigation. Individual page layouts are stored in the ./pages 
+# directory and rendered through the shared page_container in the main layout.
 app = Dash(
     __name__,
     use_pages=True,
@@ -62,7 +79,8 @@ app.index_string = """<!DOCTYPE html>
     </body>
 </html>"""
 
-
+# Create the app's navigation links and mark the current page as active. The function creates one clickable link 
+# for each page in 'NAV'. The link matching 'pathname' recieves the active CSS class.
 def nav_links(pathname: str = "/") -> list:
     """Nav links, with the current page marked in text rather than by color alone."""
     links = []

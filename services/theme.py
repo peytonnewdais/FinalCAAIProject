@@ -26,7 +26,7 @@ THEMES = {
     "dark": dict(
         template="plotly_dark", surface="#1a1a19", page="#0d0d0d",
         ink="#ffffff", ink2="#c3c2b7", muted="#898781", grid="#2c2c2a", axis="#383835",
-        event="#7b8397", good="#0ca30c", bad="#e66767",
+        event="#7b8397", good="#10b981", bad="#f87171",
     ),
 }
 

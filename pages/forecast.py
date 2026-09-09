@@ -5,7 +5,7 @@ from dash import Input, Output, State, callback, dcc, html
 from plotly.subplots import make_subplots
 
 from services import ai_summary, config
-from services.forecast import DRIFT_MODES, LOOKBACKS, forecast_all
+from services.forecast import LOOKBACKS, forecast_all
 from services.market_data import industry_index, scorecard
 
 dash.register_page(__name__, path="/forecast", name="Forecast")
@@ -30,10 +30,9 @@ VIEW_OPTIONS = [{"label": "All industries", "value": "all"}] + [
 def layout():
     return html.Div([
         html.H1("Where could each industry go next?"),
-        html.P("For every industry index we measure a trend and a volatility from recent daily "
-               "returns, then project them forward. The shaded bands are the 50% and 80% "
-               "ranges and the dashed line is the middle path. Change the assumptions to see "
-               "how much the picture depends on them."),
+        html.P("Each index is projected forward with geometric Brownian motion: future value = "
+               "today's value × e^(trend + randomness). The shaded bands show a range of likely "
+               "outcomes, not one prediction."),
 
         html.Div(className="card", children=[
             html.Div(className="controls", children=[
@@ -47,25 +46,14 @@ def layout():
                                    options=[{"label": v, "value": k}
                                             for k, v in LOOKBACKS.items()]),
                 ]),
-                html.Div(className="control", children=[
-                    html.Label("Trend assumption"),
-                    dcc.RadioItems(id="drift", value="half",
-                                   options=[{"label": v, "value": k}
-                                            for k, v in DRIFT_MODES.items()]),
-                ]),
             ]),
             html.Label("How far ahead", style={"display": "block", "marginTop": "20px"}),
             dcc.Slider(id="horizon", min=3, max=24, step=3, value=12,
                        marks={m: f"{m} mo" for m in range(3, 25, 3)}),
         ]),
 
-        html.Div(className="card", children=[
-            # Filled in by the callback: a plain-language read of what the current
-            # settings actually project, grounded in the same numbers as the chart
-            # and table below rather than a generic caption.
-            html.P(id="forecast-summary", className="muted"),
-            dcc.Graph(id="forecast-chart", style={"height": "650px"}),
-        ]),
+        html.Div(className="card", children=dcc.Graph(id="forecast-chart",
+                                                      style={"height": "650px"})),
 
         html.Div(className="card", children=[
             html.H3("Forecast table"),
@@ -85,10 +73,16 @@ def layout():
             html.Ul([
                 html.Li("Daily log returns over the lookback window give an average (the trend) "
                         "and a standard deviation (the volatility)."),
+                html.Li("This is not a regression - no line is fit against time. It is a "
+                        "closed-form lognormal model (geometric Brownian motion, the same math "
+                        "behind Black-Scholes): the average and standard deviation are plugged "
+                        "straight into a formula for each percentile, not simulated."),
                 html.Li("The future is projected from those two numbers, with uncertainty "
                         "growing over time. That is what makes the cone widen."),
-                html.Li("The trend is the shakiest input. 'Historical' keeps the recent run, "
-                        "'half' shrinks it, and 'no trend' assumes the run is over."),
+                html.Li("The trend is always damped to half of its historical value, not the "
+                        "full run and not zero. It is the shakiest input - a page that let "
+                        "visitors dial it up or down would just move the guesswork onto them - "
+                        "so the model picks the one defensible middle ground instead."),
                 html.Li("Volatility is assumed to stay constant, so real markets will have "
                         "bigger surprises than the cone shows."),
                 html.Li("This is a class project, not investment advice."),
@@ -126,68 +120,17 @@ def fade(hex_color, alpha):
     return f"rgba({r},{g},{b},{alpha})"
 
 
-# Grammatical clauses for LOOKBACKS, used after "returns over ...". LOOKBACKS' own labels
-# are UI option text ("Since ChatGPT launch") - fine capitalized at the start of a radio
-# button, wrong lowercased mid-sentence ("chatgpt" loses its brand capitalization), and
-# "since ChatGPT launch" cannot follow "over" grammatically either way.
-LOOKBACK_CLAUSE = {
-    "1y": "the last year",
-    "2y": "the last 2 years",
-    "boom": "the time since ChatGPT launched",
-}
-
-
-def summary_text(view, horizon, lookback, drift, results, names):
-    """A plain-language read of what the chart shows, grounded in its own numbers.
-
-    The chart and table give the figures; this says in words what they mean, so a
-    reader is not left to work out on their own that the shaded band is a range of
-    outcomes rather than an error bar, or that "100" is not a price.
-    """
-    lookback_clause = LOOKBACK_CLAUSE[lookback]
-    drift_label = DRIFT_MODES[drift].lower()   # "Historical trend" -> "historical trend"
-
-    if view != "all":
-        s = results[view][1]
-        return (
-            f"This projects {view} {horizon} months ahead, using daily returns over "
-            f"{lookback_clause} and assuming {drift_label}. The index sits at "
-            f"{s['last_value']:,.0f} today, where 100 marks its October 2022 baseline. The "
-            f"dashed middle path lands at {s['median_change_pct']:+,.1f}% from here, and "
-            f"there is an 80% chance the real outcome falls somewhere in the shaded band, "
-            f"between {s['p10_change_pct']:+,.1f}% and {s['p90_change_pct']:+,.1f}%. The model "
-            f"puts the odds of it ending higher than today at {s['prob_gain_pct']}%."
-        )
-
-    # "All industries": no single number to report, so point out the spread instead.
-    best = max(names, key=lambda n: results[n][1]["median_change_pct"])
-    worst = min(names, key=lambda n: results[n][1]["median_change_pct"])
-    best_pct = results[best][1]["median_change_pct"]
-    worst_pct = results[worst][1]["median_change_pct"]
-    return (
-        f"These are {horizon}-month projections for all {len(names)} indices, using daily "
-        f"returns over {lookback_clause} and assuming {drift_label}. {best} has the most "
-        f"optimistic middle path at {best_pct:+,.1f}%; {worst} has the least at "
-        f"{worst_pct:+,.1f}%. The bands widen further out because uncertainty compounds with "
-        f"time - they are a range of plausible outcomes under this model, not error bars on "
-        f"a single predicted number."
-    )
-
-
 @callback(
     Output("forecast-chart", "figure"),
-    Output("forecast-summary", "children"),
     Output("forecast-table", "children"),
     Input("view", "value"),
     Input("horizon", "value"),
     Input("lookback", "value"),
-    Input("drift", "value"),
 )
-def update_forecast(view, horizon, lookback, drift):
+def update_forecast(view, horizon, lookback):
     index = industry_index()
-    results = forecast_all(index, horizon, lookback, drift)
+    results = forecast_all(index, horizon, lookback)
     names = list(index.columns)
-    summary = summary_text(view, horizon, lookback, drift, results, names)
 
     if view == "all":
         # Nine small charts in a 3x3 grid, one per index.
@@ -243,7 +186,7 @@ def update_forecast(view, horizon, lookback, drift):
                             for i, name in enumerate(header)])),
         html.Tbody(rows),
     ])
-    return fig, summary, table
+    return fig, table
 
 
 @callback(
@@ -251,13 +194,12 @@ def update_forecast(view, horizon, lookback, drift):
     Input("outlook-button", "n_clicks"),
     State("horizon", "value"),
     State("lookback", "value"),
-    State("drift", "value"),
     prevent_initial_call=True,
 )
-def write_outlook(n_clicks, horizon, lookback, drift):
+def write_outlook(n_clicks, horizon, lookback):
     """Send the forecast numbers for every industry to Claude."""
     index = industry_index()
-    results = forecast_all(index, horizon, lookback, drift)
+    results = forecast_all(index, horizon, lookback)
     since_boom = scorecard()
 
     rows = []
@@ -273,7 +215,7 @@ def write_outlook(n_clicks, horizon, lookback, drift):
     settings = {
         "horizon_months": horizon,
         "lookback": LOOKBACKS[lookback],
-        "drift_assumption": DRIFT_MODES[drift],
+        "drift_assumption": "Half of the historical trend, fixed (not user-adjustable)",
         "index_base": "Equal-weight basket of five stocks, 100 = Oct 3, 2022",
     }
 

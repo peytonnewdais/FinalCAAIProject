@@ -1,0 +1,23 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+#
+# Connect the repo at https://dashboard.render.com/blueprints and Render reads this
+# file automatically. Set ANTHROPIC_API_KEY and SEC_USER_AGENT in the dashboard
+# (marked sync: false below so their values are never committed to git).
+services:
+  - type: web
+    name: ai-boom-scorecard
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:server --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SEC_USER_AGENT
+        sync: false
+      - key: CLAUDE_MODEL
+        value: claude-sonnet-5
+      - key: SUMMARY_EFFORT
+        value: medium

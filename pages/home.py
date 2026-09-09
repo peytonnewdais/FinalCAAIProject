@@ -1,4 +1,7 @@
-"""Home page: the question, headline numbers, and where to go next."""
+"""Home page: the question, headline numbers, and where to go next.
+
+AI usage: see docs/AI_USAGE.md.
+"""
 from __future__ import annotations
 
 import dash
@@ -57,7 +60,9 @@ def layout():
 
         html.Section(className="card-grid", children=[
             dcc.Link(href=path, className="link-card", children=[
-                html.Div(icon, className="icon"),
+                # The heading right below says the same thing; without this a screen reader
+                # reads "chart increasing, Industries".
+                html.Div(icon, className="icon", **{"aria-hidden": "true"}),
                 html.H3(title),
                 html.P(text, className="muted"),
                 html.Span("Open →", className="go"),

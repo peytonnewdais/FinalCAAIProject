@@ -2,6 +2,9 @@
 
 Calls go through the official Anthropic SDK. Responses are cached on disk keyed by
 the exact prompt, so re-rendering a page (or toggling the theme) never re-bills.
+
+This module is the app's one runtime (user-facing) use of AI, distinct from AI used as a
+development tool elsewhere in this repo. AI usage: see docs/AI_USAGE.md.
 """
 from __future__ import annotations
 

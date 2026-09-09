@@ -2,19 +2,25 @@
 
 The page toggles ``data-theme`` on <html>; callbacks receive the same value from
 the ``theme`` store and pass it here so figures repaint in the matching palette.
+
+AI usage: see docs/AI_USAGE.md.
 """
 from __future__ import annotations
 
 import plotly.graph_objects as go
 
+from .a11y import CVD_DASHES, CVD_MARKERS, PALETTE_CVD, resolve_cvd
 from .config import BENCHMARK, INDUSTRIES, PALETTE
 
 FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 
+# These mirror the CSS custom properties in assets/style.css; the two must move together.
+# "muted" paints axis tick labels, which are real text and so are held to 4.5:1 - that is
+# why light mode uses #74726c rather than the #898781 the design started with.
 THEMES = {
     "light": dict(
         template="plotly_white", surface="#fcfcfb", page="#f9f9f7",
-        ink="#0b0b0b", ink2="#52514e", muted="#898781", grid="#e1e0d9", axis="#c3c2b7",
+        ink="#0b0b0b", ink2="#52514e", muted="#74726c", grid="#e1e0d9", axis="#c3c2b7",
         event="#8a8f9c", good="#006300", bad="#d03b3b",
     ),
     "dark": dict(
@@ -34,17 +40,42 @@ def tokens(theme) -> dict:
     return THEMES[resolve(theme)]
 
 
-def industry_colors(theme) -> dict:
+def palette(theme, cvd=False) -> list[str]:
+    """The active categorical palette for this theme and colorblind setting."""
+    source = PALETTE_CVD if resolve_cvd(cvd) else PALETTE
+    return source[resolve(theme)]
+
+
+def industry_colors(theme, cvd=False) -> dict:
     """Industry -> hex. The benchmark is a reference line and wears the ink color."""
-    t = resolve(theme)
-    colors = dict(zip(INDUSTRIES, PALETTE[t]))
-    colors[BENCHMARK] = THEMES[t]["ink"]
+    colors = dict(zip(INDUSTRIES, palette(theme, cvd)))
+    colors[BENCHMARK] = tokens(theme)["ink"]
     return colors
 
 
-def slot(theme, index: int) -> str:
+def slot(theme, index: int, cvd=False) -> str:
     """Categorical slot color (0-based) for series that are not industries."""
-    return PALETTE[resolve(theme)][index]
+    return palette(theme, cvd)[index]
+
+
+def line_dash(name, cvd=False) -> str:
+    """Dash pattern for a series.
+
+    In colorblind mode every industry gets its own pattern, so a line stays identifiable
+    without relying on hue at all (WCAG 1.4.1). Off, everything is solid as designed.
+    """
+    if not resolve_cvd(cvd):
+        return "solid"
+    order = list(INDUSTRIES)
+    return CVD_DASHES[order.index(name) % len(CVD_DASHES)] if name in order else "solid"
+
+
+def marker_symbol(name, cvd=False) -> str:
+    """Marker shape for a series, used alongside line_dash in colorblind mode."""
+    order = list(INDUSTRIES)
+    if not resolve_cvd(cvd) or name not in order:
+        return "circle"
+    return CVD_MARKERS[order.index(name) % len(CVD_MARKERS)]
 
 
 def rgba(hex_color: str, alpha: float) -> str:

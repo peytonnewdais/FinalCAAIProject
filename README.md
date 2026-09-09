@@ -6,7 +6,8 @@
 > stock market rewarded that adoption?
 
 A multi-page Dash app that grows the original single-chart project into a small research
-dashboard. It tracks 40 large companies across eight industries from just before ChatGPT's
+dashboard. This app is for investor or analyst trying to tell whether a a company's AI messaging is backed by financial reality.
+It tracks 40 large companies across eight industries from just before ChatGPT's
 launch (Nov 30, 2022), reads what each company tells the SEC about artificial intelligence,
 asks Claude to weigh that against share prices, and projects where each industry index could
 go next. Light and dark mode are built in.

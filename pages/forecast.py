@@ -12,6 +12,17 @@ dash.register_page(__name__, path="/forecast", name="Forecast")
 
 HISTORY_DAYS = 252        # one year of real history drawn before the cone starts
 
+# The chart's y-axis: every index is rebased to 100 on its October 2022 baseline, so a
+# reading of 1200 means the industry basket is worth 12x what it was worth then - not a
+# real price. Spelled out on the axis itself since that is easy to misread at a glance.
+#
+# Two lengths: the single-index chart has the full chart height for one axis title and
+# can afford the long version, but the "all industries" grid splits that same height
+# three ways - the long version doesn't fit a subplot row and spills into the next one,
+# so the grid gets the short version instead.
+Y_AXIS_TITLE = "Index level (100 = Oct 2022 baseline value)"
+Y_AXIS_TITLE_SHORT = "Index level (100 = Oct 2022)"
+
 VIEW_OPTIONS = [{"label": "All industries", "value": "all"}] + [
     {"label": name, "value": name} for name in list(config.INDUSTRIES) + [config.BENCHMARK]]
 
@@ -48,8 +59,13 @@ def layout():
                        marks={m: f"{m} mo" for m in range(3, 25, 3)}),
         ]),
 
-        html.Div(className="card", children=dcc.Graph(id="forecast-chart",
-                                                      style={"height": "650px"})),
+        html.Div(className="card", children=[
+            # Filled in by the callback: a plain-language read of what the current
+            # settings actually project, grounded in the same numbers as the chart
+            # and table below rather than a generic caption.
+            html.P(id="forecast-summary", className="muted"),
+            dcc.Graph(id="forecast-chart", style={"height": "650px"}),
+        ]),
 
         html.Div(className="card", children=[
             html.H3("Forecast table"),
@@ -110,8 +126,57 @@ def fade(hex_color, alpha):
     return f"rgba({r},{g},{b},{alpha})"
 
 
+# Grammatical clauses for LOOKBACKS, used after "returns over ...". LOOKBACKS' own labels
+# are UI option text ("Since ChatGPT launch") - fine capitalized at the start of a radio
+# button, wrong lowercased mid-sentence ("chatgpt" loses its brand capitalization), and
+# "since ChatGPT launch" cannot follow "over" grammatically either way.
+LOOKBACK_CLAUSE = {
+    "1y": "the last year",
+    "2y": "the last 2 years",
+    "boom": "the time since ChatGPT launched",
+}
+
+
+def summary_text(view, horizon, lookback, drift, results, names):
+    """A plain-language read of what the chart shows, grounded in its own numbers.
+
+    The chart and table give the figures; this says in words what they mean, so a
+    reader is not left to work out on their own that the shaded band is a range of
+    outcomes rather than an error bar, or that "100" is not a price.
+    """
+    lookback_clause = LOOKBACK_CLAUSE[lookback]
+    drift_label = DRIFT_MODES[drift].lower()   # "Historical trend" -> "historical trend"
+
+    if view != "all":
+        s = results[view][1]
+        return (
+            f"This projects {view} {horizon} months ahead, using daily returns over "
+            f"{lookback_clause} and assuming {drift_label}. The index sits at "
+            f"{s['last_value']:,.0f} today, where 100 marks its October 2022 baseline. The "
+            f"dashed middle path lands at {s['median_change_pct']:+,.1f}% from here, and "
+            f"there is an 80% chance the real outcome falls somewhere in the shaded band, "
+            f"between {s['p10_change_pct']:+,.1f}% and {s['p90_change_pct']:+,.1f}%. The model "
+            f"puts the odds of it ending higher than today at {s['prob_gain_pct']}%."
+        )
+
+    # "All industries": no single number to report, so point out the spread instead.
+    best = max(names, key=lambda n: results[n][1]["median_change_pct"])
+    worst = min(names, key=lambda n: results[n][1]["median_change_pct"])
+    best_pct = results[best][1]["median_change_pct"]
+    worst_pct = results[worst][1]["median_change_pct"]
+    return (
+        f"These are {horizon}-month projections for all {len(names)} indices, using daily "
+        f"returns over {lookback_clause} and assuming {drift_label}. {best} has the most "
+        f"optimistic middle path at {best_pct:+,.1f}%; {worst} has the least at "
+        f"{worst_pct:+,.1f}%. The bands widen further out because uncertainty compounds with "
+        f"time - they are a range of plausible outcomes under this model, not error bars on "
+        f"a single predicted number."
+    )
+
+
 @callback(
     Output("forecast-chart", "figure"),
+    Output("forecast-summary", "children"),
     Output("forecast-table", "children"),
     Input("view", "value"),
     Input("horizon", "value"),
@@ -122,6 +187,7 @@ def update_forecast(view, horizon, lookback, drift):
     index = industry_index()
     results = forecast_all(index, horizon, lookback, drift)
     names = list(index.columns)
+    summary = summary_text(view, horizon, lookback, drift, results, names)
 
     if view == "all":
         # Nine small charts in a 3x3 grid, one per index.
@@ -134,13 +200,18 @@ def update_forecast(view, horizon, lookback, drift):
                      row=i // 3 + 1, col=i % 3 + 1)
         fig.update_layout(title=f"{horizon}-month forecast for every index", showlegend=False)
         fig.update_annotations(font_size=12)
+        # One label is enough for a 3x3 grid; every subplot shares the same scale.
+        for row in (1, 2, 3):
+            fig.update_yaxes(title_text=Y_AXIS_TITLE_SHORT, row=row, col=1,
+                             title_font=dict(size=10))
     else:
         paths, _ = results[view]
         history = index[view].iloc[-2 * HISTORY_DAYS:]
         fig = go.Figure()
         add_cone(fig, history, paths, config.INDUSTRY_COLORS[view], view, legend=True)
         fig.update_layout(title=f"{view}: {horizon}-month forecast", hovermode="x unified",
-                          legend=dict(orientation="h", y=-0.12))
+                          legend=dict(orientation="h", y=-0.12),
+                          yaxis_title=Y_AXIS_TITLE)
 
     fig.update_layout(plot_bgcolor="white", paper_bgcolor="white",
                       margin=dict(l=45, r=25, t=70, b=40))
@@ -172,7 +243,7 @@ def update_forecast(view, horizon, lookback, drift):
                             for i, name in enumerate(header)])),
         html.Tbody(rows),
     ])
-    return fig, table
+    return fig, summary, table
 
 
 @callback(

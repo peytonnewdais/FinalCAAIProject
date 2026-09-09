@@ -1,6 +1,9 @@
 """Shared constants: industries, tickers, palette, events, and settings read from .env.
 
 AI usage: see docs/AI_USAGE.md.
+
+AI usage, we used AI to develop this function faster; however, AI's role was mainly to help us refactor the site as a whole which 
+is why this function has its own file. 
 """
 from __future__ import annotations
 

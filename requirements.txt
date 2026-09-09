@@ -8,9 +8,3 @@ beautifulsoup4>=4.12
 lxml>=5.0
 anthropic>=1.0
 python-dotenv>=1.0
-
-# Deployment (Render runs `gunicorn app:server`; not needed for `python app.py` locally)
-gunicorn>=21.2
-
-# Testing (`pytest` from the project root)
-pytest>=8.0

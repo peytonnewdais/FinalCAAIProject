@@ -1,151 +1,122 @@
-"""Industries page: the original rebased-index chart plus the scorecard, theme-aware.
-
-AI usage: see docs/AI_USAGE.md.
-"""
-from __future__ import annotations
-
+"""Industries page: the main chart of industry indices, plus a scorecard bar chart."""
 import dash
 import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, callback, dcc, html
 
-from services import config, theme
+from services import config
 from services.market_data import industry_index, rebase, scorecard, years
-from services.ui import GRAPH_CONFIG, chart, control, describe_ranked, page_head
 
-dash.register_page(__name__, path="/industries", name="Industries",
-                   title=f"Industries | {config.APP_TITLE}")
+dash.register_page(__name__, path="/industries", name="Industries")
 
-METRIC_LABEL = "Rebased index (start of window = 100)"
+YEARS = years()
+
+
+def scorecard_figure():
+    """The bar chart of total returns. It has no controls, so it is built once."""
+    scores = scorecard()
+
+    fig = go.Figure(go.Bar(
+        x=scores.values, y=scores.index, orientation="h",
+        marker_color=[config.INDUSTRY_COLORS[name] for name in scores.index],
+        text=[f"{v:+,.0f}%" for v in scores.values], textposition="outside",
+        cliponaxis=False,
+    ))
+    fig.update_layout(
+        title="Total return since ChatGPT launched",
+        plot_bgcolor="white", paper_bgcolor="white", showlegend=False, bargap=0.3,
+        margin=dict(l=10, r=60, t=60, b=40),
+    )
+    # Extra room on both sides so the "+950%" labels are not cut off.
+    span = scores.max() - scores.min()
+    fig.update_xaxes(range=[scores.min() - span * 0.2, scores.max() + span * 0.15],
+                     title="Total return since Nov 30, 2022 (%)", gridcolor="#e1e0d9")
+    return fig
 
 
 def layout():
-    yrs = years()
     return html.Div([
-        page_head(
-            "How the AI boom affected different industries",
-            "Each line is an equal-weight basket of the five largest companies in an industry, "
-            "rebased to 100 at the start of the selected window. The dashed line is the S&P 500.",
-            eyebrow="Industry scorecard",
-        ),
+        html.H1("How the AI boom affected different industries"),
+        html.P("Each line is an equal-weight basket of the five largest companies in an "
+               "industry, rebased to 100 at the start of the window you pick. The black "
+               "dashed line is the S&P 500."),
 
         html.Div(className="card", children=[
-            html.Div(className="controls", children=[
-                control("Industries", dcc.Dropdown(
-                    id="ind-industries",
-                    options=[{"label": i, "value": i} for i in config.INDUSTRIES],
-                    value=[], multi=True, clearable=True,
+            html.Div(className="control", children=[
+                html.Label("Industries"),
+                dcc.Dropdown(
+                    id="industry-picker",
+                    options=[{"label": name, "value": name} for name in config.INDUSTRIES],
+                    value=["Semiconductors & AI Hardware", "IT Services & Consulting"],
+                    multi=True,
                     placeholder="Pick industries to compare against the S&P 500",
-                ), grow=True),
+                ),
             ]),
-            html.Div(className="slider-wrap", role="group",
-                     **{"aria-labelledby": "ind-years-label"}, children=[
-                         html.Label("Time window", id="ind-years-label"),
-                         dcc.RangeSlider(id="ind-years", min=yrs[0], max=yrs[-1],
-                                         value=[yrs[0], yrs[-1]], step=None,
-                                         marks={int(y): str(y) for y in yrs}),
-                     ]),
-            chart(dcc.Graph(id="ind-chart", config=GRAPH_CONFIG,
-                            style={"height": "60vh", "minHeight": "460px"}),
-                  "ind-chart-desc"),
+            html.Label("Time window", style={"display": "block", "marginTop": "20px"}),
+            dcc.RangeSlider(
+                id="year-slider",
+                min=YEARS[0], max=YEARS[-1], value=[YEARS[0], YEARS[-1]], step=None,
+                marks={y: str(y) for y in YEARS},
+            ),
+            dcc.Graph(id="industry-chart", style={"height": "550px"}),
         ]),
 
         html.Div(className="card", children=[
             html.H3("The whole boom in one chart"),
-            html.P("Total return of each industry index from ChatGPT's launch to the latest close.",
-                   className="muted"),
-            chart(dcc.Graph(id="ind-scorecard", config=GRAPH_CONFIG,
-                            style={"height": "460px"}),
-                  "ind-scorecard-desc"),
-            html.P(
-                "Since the boom began, Semiconductors & AI Hardware climbed to roughly ten times its "
-                "starting value while the S&P 500 roughly doubled. IT Services & Consulting and "
-                "Content & Support Services lost a large share of their value. The gains were "
-                "concentrated, not shared.",
-            ),
+            html.P("Total return of each industry index from ChatGPT's launch to the latest "
+                   "close.", className="muted"),
+            dcc.Graph(figure=scorecard_figure(), style={"height": "460px"}),
+            html.P("Semiconductors climbed to roughly ten times its starting value while the "
+                   "S&P 500 roughly doubled. IT services and content businesses lost a large "
+                   "share of their value. The gains were concentrated, not shared."),
         ]),
 
         html.Div(className="card", children=[
             html.H3("Events marked on the chart"),
-            html.Ul([html.Li([html.Strong(pd.Timestamp(day).strftime("%b %d, %Y")), f" - {label}"])
+            html.Ul([html.Li(f"{pd.Timestamp(day):%b %d, %Y} - {label}")
                      for day, label in config.EVENTS]),
         ]),
     ])
 
 
 @callback(
-    Output("ind-chart", "figure"),
-    Output("ind-chart-desc", "children"),
-    Input("ind-industries", "value"),
-    Input("ind-years", "value"),
-    Input("theme", "data"),
-    Input("cvd", "data"),
+    Output("industry-chart", "figure"),
+    Input("industry-picker", "value"),
+    Input("year-slider", "value"),
 )
-def update_chart(industries, year_range, theme_key, cvd):
-    window = industry_index().loc[str(year_range[0]):str(year_range[1])]
+def update_chart(industries, year_range):
+    # The S&P 500 is always shown, so the picked industries have something to beat.
     columns = list(industries or []) + [config.BENCHMARK]
-    data = rebase(window[columns])
-    colors = theme.industry_colors(theme_key, cvd)
+    window = industry_index().loc[str(year_range[0]):str(year_range[1])]
+    data = rebase(window[columns])               # restart every line at 100
 
     fig = go.Figure()
     for name in columns:
-        is_benchmark = name == config.BENCHMARK
-        # In colorblind mode each industry also gets its own dash pattern, so the lines stay
-        # separable without relying on hue.
-        dash_style = "dash" if is_benchmark else theme.line_dash(name, cvd)
         fig.add_trace(go.Scatter(
             x=data.index, y=data[name], name=name, mode="lines",
-            line=dict(color=colors[name], width=2, dash=dash_style),
-            hovertemplate="%{y:,.0f}<extra>" + name + "</extra>",
+            line=dict(color=config.INDUSTRY_COLORS[name], width=2,
+                      dash="dash" if name == config.BENCHMARK else "solid"),
         ))
 
-    theme.add_event_lines(fig, data.index.min(), data.index.max(), theme_key)
-    fig.add_hline(y=100, line_width=1, line_color=theme.tokens(theme_key)["axis"])
-    theme.apply(
-        fig, theme_key,
-        title=METRIC_LABEL, hovermode="x unified",
-        legend=dict(orientation="h", y=-0.16, title=""),
-        yaxis=dict(title=""), xaxis=dict(title=""),
+    # Dotted vertical lines for the AI events that fall inside the chosen window.
+    # The labels alternate left and right so neighbouring events do not overlap.
+    shown = 0
+    for day, label in config.EVENTS:
+        date = pd.Timestamp(day)
+        if data.index.min() <= date <= data.index.max():
+            side = "top left" if shown % 2 == 0 else "top right"
+            fig.add_vline(x=date, line_width=1, line_dash="dot", line_color="#8a8f9c",
+                          annotation_text=label, annotation_position=side,
+                          annotation_font=dict(size=10, color="#6b6a65"))
+            shown += 1
+
+    fig.add_hline(y=100, line_width=1, line_color="#c3c2b7")   # the starting level
+    fig.update_layout(
+        title="Rebased index (start of window = 100)",
+        hovermode="x unified", plot_bgcolor="white", paper_bgcolor="white",
+        legend=dict(orientation="h", y=-0.15),
+        margin=dict(l=50, r=25, t=60, b=40),
     )
-
-    finals = sorted(((name, float(data[name].iloc[-1])) for name in columns),
-                    key=lambda pair: pair[1], reverse=True)
-    description = describe_ranked(
-        f"Line chart. {len(columns)} series from {data.index.min():%B %Y} to "
-        f"{data.index.max():%B %Y}, each starting at 100. Ending values, highest first:",
-        finals,
-    )
-    return fig, description
-
-
-@callback(
-    Output("ind-scorecard", "figure"),
-    Output("ind-scorecard-desc", "children"),
-    Input("theme", "data"),
-    Input("cvd", "data"),
-)
-def update_scorecard(theme_key, cvd):
-    scores = scorecard()
-    colors = theme.industry_colors(theme_key, cvd)
-    t = theme.tokens(theme_key)
-
-    fig = go.Figure(go.Bar(
-        x=scores.values, y=scores.index, orientation="h",
-        marker=dict(color=[colors[i] for i in scores.index], line=dict(width=0)),
-        text=[f"{v:+,.0f}%" for v in scores.values], textposition="outside",
-        cliponaxis=False, textfont=dict(color=t["ink"], size=12),
-        hovertemplate="%{y}: %{x:+,.0f}%<extra></extra>",
-    ))
-    span = float(scores.max() - scores.min())
-    fig.update_xaxes(range=[scores.min() - span * 0.18, scores.max() + span * 0.14],
-                     title="Total return since Nov 30, 2022 (%)")
-    fig.update_yaxes(title="")
-    theme.apply(fig, theme_key, title="Total return since Fall 2022", showlegend=False,
-                bargap=0.3, margin=dict(l=10, r=40, t=56, b=48))
-
-    ranked = sorted(((name, float(v)) for name, v in scores.items()),
-                    key=lambda pair: pair[1], reverse=True)
-    description = describe_ranked(
-        "Bar chart. Total return since November 30, 2022, best first:", ranked, unit="%",
-    )
-    return fig, description
+    fig.update_yaxes(gridcolor="#e1e0d9")
+    fig.update_xaxes(gridcolor="#e1e0d9")
+    return fig

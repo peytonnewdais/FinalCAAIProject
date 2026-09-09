@@ -1,15 +1,10 @@
-"""Shared constants: industries, tickers, palette, events, and settings read from .env.
-
-AI usage: see docs/AI_USAGE.md.
-"""
-from __future__ import annotations
-
+"""Settings used by the whole app: industries, tickers, colors, dates."""
 import os
-from pathlib import Path
 
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()                # reads the .env file so the Claude key is available
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / "cache"
@@ -17,15 +12,16 @@ CACHE_DIR.mkdir(exist_ok=True)
 
 APP_TITLE = "AI Boom Scorecard"
 TEAM = "Team 8 - Peyton, Asad, Maya"
-SOURCE = "Source: Yahoo Finance (yfinance) adjusted closes; SEC EDGAR annual filings"
+SOURCE = "Source: Yahoo Finance (yfinance) and SEC EDGAR annual filings"
 
 BENCHMARK = "S&P 500 (SPY)"
 BENCHMARK_TICKER = "SPY"
 
-BOOM_START = "2022-11-30"       # ChatGPT public launch
-BASELINE_START = "2022-10-01"   # one month of shared pre-boom baseline for the industry index
-HISTORY_START = "2020-01-01"    # deeper history for the compare page and forecast lookbacks
+BOOM_START = "2022-11-30"        # the day ChatGPT launched
+BASELINE_START = "2022-10-01"    # one month before, so every index starts level
+HISTORY_START = "2020-01-01"     # how far back we download prices
 
+# Five big companies in each of eight industries the AI boom touched.
 INDUSTRIES = {
     "Semiconductors & AI Hardware": ["NVDA", "AMD", "AVGO", "TSM", "MU"],
     "Big Tech & Cloud":             ["MSFT", "GOOGL", "AMZN", "META", "AAPL"],
@@ -40,51 +36,49 @@ INDUSTRIES = {
 COMPANY_NAMES = {
     "NVDA": "NVIDIA", "AMD": "AMD", "AVGO": "Broadcom", "TSM": "TSMC", "MU": "Micron",
     "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon", "META": "Meta", "AAPL": "Apple",
-    "CRM": "Salesforce", "ORCL": "Oracle", "NOW": "ServiceNow", "PLTR": "Palantir", "SNOW": "Snowflake",
-    "NEE": "NextEra Energy", "CEG": "Constellation Energy", "VST": "Vistra", "SO": "Southern Co",
-    "DUK": "Duke Energy",
+    "CRM": "Salesforce", "ORCL": "Oracle", "NOW": "ServiceNow", "PLTR": "Palantir",
+    "SNOW": "Snowflake",
+    "NEE": "NextEra Energy", "CEG": "Constellation Energy", "VST": "Vistra",
+    "SO": "Southern Co", "DUK": "Duke Energy",
     "JPM": "JPMorgan Chase", "BAC": "Bank of America", "GS": "Goldman Sachs", "V": "Visa",
     "MS": "Morgan Stanley",
-    "CAT": "Caterpillar", "GE": "GE Aerospace", "HON": "Honeywell", "DE": "Deere", "UNP": "Union Pacific",
-    "ACN": "Accenture", "INFY": "Infosys", "CTSH": "Cognizant", "EPAM": "EPAM Systems", "GLOB": "Globant",
-    "CHGG": "Chegg", "TTEC": "TTEC", "SSTK": "Shutterstock", "GETY": "Getty Images", "CNXC": "Concentrix",
+    "CAT": "Caterpillar", "GE": "GE Aerospace", "HON": "Honeywell", "DE": "Deere",
+    "UNP": "Union Pacific",
+    "ACN": "Accenture", "INFY": "Infosys", "CTSH": "Cognizant", "EPAM": "EPAM Systems",
+    "GLOB": "Globant",
+    "CHGG": "Chegg", "TTEC": "TTEC", "SSTK": "Shutterstock", "GETY": "Getty Images",
+    "CNXC": "Concentrix",
 }
 
+# Flat lists built from the dictionary above, so the tickers are only typed once.
 TICKER_INDUSTRY = {t: ind for ind, tickers in INDUSTRIES.items() for t in tickers}
 COMPANY_TICKERS = [t for tickers in INDUSTRIES.values() for t in tickers]
 TICKERS = sorted(set(COMPANY_TICKERS) | {BENCHMARK_TICKER})
 
-# Categorical palette, one slot per industry in fixed order. Colors follow the entity,
-# never its rank, so filtering never repaints the survivors.
-#
-# Every swatch clears WCAG 1.4.11's 3:1 against its chart surface; three light-mode colors
-# were darkened to get there (they sat at 2.1-2.7:1). This is the *default* palette and it
-# is tuned for contrast and for the team's visual identity, NOT for color blindness - eight
-# hues cannot be told apart under dichromacy no matter how they are chosen. Users who need
-# that pick colorblind mode, which swaps in services/a11y.PALETTE_CVD and adds dash and
-# marker encoding. Both palettes are re-checked by tests/test_a11y.py.
-PALETTE = {
-    "light": ["#1f73d0", "#eb6834", "#00a571", "#c88200", "#d96e97", "#008300", "#4a3aa7", "#e34948"],
-    "dark":  ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
-}
+# One color per industry, in the same order as INDUSTRIES, so an industry keeps
+# its color on every chart.
+COLORS = ["#1f73d0", "#eb6834", "#00a571", "#c88200",
+          "#d96e97", "#008300", "#4a3aa7", "#e34948"]
+INDUSTRY_COLORS = dict(zip(INDUSTRIES, COLORS))
+INDUSTRY_COLORS[BENCHMARK] = "#33322f"
 
+# Dates marked with a dotted line on the industry chart.
 EVENTS = [
     ("2022-11-30", "ChatGPT launches"),
     ("2023-05-24", "NVDA guides AI blowout"),
     ("2025-01-27", "DeepSeek selloff"),
 ]
 
-# SEC asks for a descriptive User-Agent with contact details on every EDGAR request.
+# The SEC asks every program to send a User-Agent with contact details.
 SEC_USER_AGENT = os.getenv(
     "SEC_USER_AGENT",
     "AI-Boom-Scorecard/1.0 (university research project; research@example.com)",
 )
 
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5")
-# Named SUMMARY_EFFORT (not CLAUDE_EFFORT) because Claude Code exports CLAUDE_EFFORT
-# into shells it launches, which would silently override the app's setting.
 CLAUDE_EFFORT = os.getenv("SUMMARY_EFFORT", "medium")
 
+# Periods offered on the compare page.
 PERIODS = {
     "boom": "Since ChatGPT launch (Nov 30, 2022)",
     "1y": "Last 1 year",

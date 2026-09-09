@@ -1,335 +1,284 @@
-"""Compare page: two companies, their AI language on SEC EDGAR, and their stock returns.
+"""Compare page: two companies, how much their SEC filings talk about AI, and how
+their share prices did.
 
-AI usage: see docs/AI_USAGE.md.
+Pressing Analyze downloads the filings (slow the first time, cached afterwards),
+stores the results in a dcc.Store, and the charts below read from that store.
 """
-from __future__ import annotations
-
 import dash
 import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html
 
-from services import ai_summary, config, edgar, theme
+from services import ai_summary, config, edgar
 from services.market_data import period_start, price_stats, rebase, ticker_series
-from services.ui import (GRAPH_CONFIG, chart, control, describe_ranked, notice, num, page_head,
-                         pct, summary_block, table, tile, tone)
 
-dash.register_page(__name__, path="/compare", name="Compare stocks",
-                   title=f"Compare stocks | {config.APP_TITLE}")
+dash.register_page(__name__, path="/compare", name="Compare Stocks")
 
-OPTIONS = [
-    {"label": f"{t}  ·  {config.COMPANY_NAMES[t]}  ({industry})", "value": t}
-    for industry, tickers in config.INDUSTRIES.items() for t in tickers
-]
-DEFAULT_A, DEFAULT_B = "NVDA", "ACN"
+# Every company in the project, grouped by industry in the label.
+OPTIONS = [{"label": f"{t} - {config.COMPANY_NAMES[t]} ({industry})", "value": t}
+           for industry, tickers in config.INDUSTRIES.items() for t in tickers]
+
+COLOR_A = "#1f73d0"
+COLOR_B = "#eb6834"
+
+
+def tile(label, value, sub, color=""):
+    """One small box showing a single number."""
+    return html.Div(className="tile", children=[
+        html.Div(label, className="label"),
+        html.Div(value, className=f"value {color}"),
+        html.Div(sub, className="sub"),
+    ])
+
+
+def percent(value):
+    """Format a number as a percentage, or 'n/a' when it is missing."""
+    return "n/a" if value is None else f"{value:+,.1f}%"
 
 
 def layout():
     return html.Div([
-        page_head(
-            "Compare two stocks: AI adoption versus the share price",
-            "We download each company's last five annual reports (10-K or 20-F) from SEC EDGAR, "
-            "count how often they discuss artificial intelligence, pull R&D spending from XBRL, "
-            "and set that against total return over the chosen period. Claude then writes the "
-            "comparison from those numbers and the filing excerpts.",
-            eyebrow="Company deep dive",
-        ),
+        html.H1("Compare two stocks: AI adoption versus the share price"),
+        html.P("We download each company's last five annual reports (10-K or 20-F) from SEC "
+               "EDGAR, count how often they discuss artificial intelligence, pull R&D spending "
+               "from XBRL, and set that against the total return over the period you choose. "
+               "Claude then writes the comparison from those numbers."),
 
         html.Div(className="card", children=[
             html.Div(className="controls", children=[
-                control("Stock A", dcc.Dropdown(id="cmp-a", options=OPTIONS, value=DEFAULT_A,
-                                                clearable=False), grow=True),
-                control("Stock B", dcc.Dropdown(id="cmp-b", options=OPTIONS, value=DEFAULT_B,
-                                                clearable=False), grow=True),
-                control("Price period", dcc.RadioItems(
-                    id="cmp-period", value="boom",
-                    options=[{"label": label, "value": key} for key, label in config.PERIODS.items()],
-                )),
-                html.Button("Analyze", id="cmp-run", n_clicks=0, className="btn btn-primary"),
+                html.Div(className="control", children=[
+                    html.Label("Stock A"),
+                    dcc.Dropdown(id="stock-a", options=OPTIONS, value="NVDA", clearable=False),
+                ]),
+                html.Div(className="control", children=[
+                    html.Label("Stock B"),
+                    dcc.Dropdown(id="stock-b", options=OPTIONS, value="ACN", clearable=False),
+                ]),
+                html.Div(className="control", children=[
+                    html.Label("Price period"),
+                    dcc.RadioItems(
+                        id="period", value="boom",
+                        options=[{"label": label, "value": key}
+                                 for key, label in config.PERIODS.items()]),
+                ]),
+                html.Button("Analyze", id="analyze", n_clicks=0, className="button"),
             ]),
-            html.P("The first analysis of a company downloads its filings from EDGAR "
-                   "(roughly 10-20 seconds). Everything is cached afterwards.",
-                   className="muted small", style={"marginTop": "12px"}),
+            html.P("The first analysis of a company downloads its filings from EDGAR, which "
+                   "takes about 10-20 seconds. After that everything is cached.",
+                   className="muted small"),
         ]),
 
-        dcc.Store(id="cmp-data"),
-        html.Div(id="cmp-error"),
-        # Announces that a run finished, for users who cannot see the charts repaint.
-        html.Div(id="cmp-status", className="sr-only", role="status",
-                 **{"aria-live": "polite", "aria-atomic": "true"}),
+        dcc.Store(id="analysis"),          # holds the results between callbacks
+        html.Div(id="error-message"),
 
-        dcc.Loading(type="circle", color="#1f73d0", delay_show=300, children=[
-            html.Div(id="cmp-tiles", className="tiles"),
-            html.Div(className="grid-2", children=[
-                html.Div(className="card", children=chart(dcc.Graph(
-                    id="cmp-price", config=GRAPH_CONFIG, style={"height": "420px"}),
-                    "cmp-price-desc")),
-                html.Div(className="card", children=[
-                    chart(dcc.Graph(id="cmp-mentions", config=GRAPH_CONFIG,
-                                    style={"height": "420px"}), "cmp-mentions-desc"),
-                    html.P(
-                        "How this is calculated: we count every occurrence of artificial "
-                        "intelligence, AI, machine learning, generative AI, large language model "
-                        "/ LLM, deep learning, and neural network in the filing text, then divide "
-                        "by the document's word count and scale to a per-10,000-word rate so "
-                        "reports of different lengths can be compared.",
-                        className="muted small", style={"marginTop": "12px"},
-                    ),
-                ]),
+        dcc.Loading(children=[
+            html.Div(id="compare-tiles", className="tiles"),
+            html.Div(className="card", children=dcc.Graph(id="price-chart")),
+            html.Div(className="card", children=[
+                dcc.Graph(id="mentions-chart"),
+                html.P("How this is counted: every occurrence of artificial intelligence, AI, "
+                       "machine learning, generative AI, large language model / LLM, deep "
+                       "learning and neural network, divided by the number of words in the "
+                       "report and scaled to a rate per 10,000 words, so reports of different "
+                       "lengths can be compared.", className="muted small"),
             ]),
-            html.Div(id="cmp-rd-card", className="card", children=chart(dcc.Graph(
-                id="cmp-rd", config=GRAPH_CONFIG, style={"height": "340px"}), "cmp-rd-desc")),
+            html.Div(id="rd-card", className="card", children=dcc.Graph(id="rd-chart")),
         ]),
 
         html.Div(className="card", children=[
             html.H3("Claude's read"),
-            dcc.Loading(type="dot", color="#1f73d0", delay_show=300,
-                        children=html.Div(id="cmp-summary")),
+            dcc.Loading(html.Div(id="claude-summary")),
         ]),
 
         html.Div(className="card", children=[
             html.H3("Filings analyzed"),
-            html.P("Mentions count every occurrence of: artificial intelligence, AI, machine "
-                   "learning, generative AI, large language model / LLM, deep learning, neural "
-                   "network. Density normalises for document length.", className="muted small"),
-            html.Div(id="cmp-filings", className="table-wrap"),
+            html.Div(id="filings-table", className="table-wrap"),
         ]),
     ])
 
 
-# ----------------------------------------------------------------- data
-
-
 @callback(
-    Output("cmp-data", "data"),
-    Output("cmp-error", "children"),
-    Input("cmp-run", "n_clicks"),
-    State("cmp-a", "value"),
-    State("cmp-b", "value"),
-    State("cmp-period", "value"),
+    Output("analysis", "data"),
+    Output("error-message", "children"),
+    Input("analyze", "n_clicks"),
+    State("stock-a", "value"),
+    State("stock-b", "value"),
+    State("period", "value"),
 )
-def run_analysis(_clicks, ticker_a, ticker_b, period):
-    if not ticker_a or not ticker_b:
-        return None, notice("Pick two companies to compare.", "error")
+def run_analysis(n_clicks, ticker_a, ticker_b, period):
+    """Fetch the filings and the price statistics for both companies."""
     if ticker_a == ticker_b:
-        return None, notice("Pick two different companies.", "error")
+        return None, html.Div("Pick two different companies.", className="notice error")
 
     start = period_start(period)
     try:
         profile_a = edgar.company_ai_profile(ticker_a)
         profile_b = edgar.company_ai_profile(ticker_b)
-    except edgar.EdgarError as exc:
-        return None, notice(f"SEC EDGAR problem: {exc}", "error")
-    except Exception as exc:  # network hiccups, malformed filings
-        return None, notice(f"Could not analyze filings: {exc}", "error")
+    except edgar.EdgarError as error:
+        return None, html.Div(f"SEC EDGAR problem: {error}", className="notice error")
+    except Exception as error:                     # a dropped connection, a broken filing
+        return None, html.Div(f"Could not analyze filings: {error}", className="notice error")
 
-    data = {
+    return {
         "a": ticker_a,
         "b": ticker_b,
-        "period": period,
         "period_label": config.PERIODS[period],
-        "start": start.date().isoformat(),
+        "start": str(start.date()),
         "profiles": {ticker_a: profile_a, ticker_b: profile_b},
         "stats": {
             ticker_a: price_stats(ticker_a, start),
             ticker_b: price_stats(ticker_b, start),
             config.BENCHMARK_TICKER: price_stats(config.BENCHMARK_TICKER, start),
         },
-    }
-    return data, None
-
-
-# ----------------------------------------------------------------- figures
-
-
-def _latest_and_first(profile: dict):
-    filings = profile["filings"]
-    return filings[-1], filings[0]
+    }, None
 
 
 @callback(
-    Output("cmp-tiles", "children"),
-    Output("cmp-price", "figure"),
-    Output("cmp-mentions", "figure"),
-    Output("cmp-rd", "figure"),
-    Output("cmp-rd-card", "style"),
-    Output("cmp-filings", "children"),
-    Output("cmp-price-desc", "children"),
-    Output("cmp-mentions-desc", "children"),
-    Output("cmp-rd-desc", "children"),
-    Output("cmp-status", "children"),
-    Input("cmp-data", "data"),
-    Input("theme", "data"),
-    Input("cvd", "data"),
+    Output("compare-tiles", "children"),
+    Output("price-chart", "figure"),
+    Output("mentions-chart", "figure"),
+    Output("rd-chart", "figure"),
+    Output("rd-card", "style"),
+    Output("filings-table", "children"),
+    Input("analysis", "data"),
 )
-def render(data, theme_key, cvd):
+def show_results(data):
+    """Draw everything from the stored analysis."""
     if not data:
-        empty = theme.empty(theme_key, "Run an analysis to see results")
-        waiting = "No analysis has been run yet."
-        return [], empty, empty, empty, {"display": "none"}, None, waiting, waiting, waiting, ""
+        blank = go.Figure()
+        blank.add_annotation(text="Press Analyze to see results", showarrow=False,
+                             xref="paper", yref="paper", x=0.5, y=0.5)
+        blank.update_xaxes(visible=False)
+        blank.update_yaxes(visible=False)
+        blank.update_layout(plot_bgcolor="white", paper_bgcolor="white", height=320)
+        return [], blank, blank, blank, {"display": "none"}, None
 
     a, b = data["a"], data["b"]
-    pa, pb = data["profiles"][a], data["profiles"][b]
+    profile_a, profile_b = data["profiles"][a], data["profiles"][b]
     stats = data["stats"]
-    color_a = theme.slot(theme_key, 0, cvd)
-    color_b = theme.slot(theme_key, 1, cvd)
-    # Colorblind mode separates the two companies by line pattern as well as hue.
-    dash_a, dash_b = ("solid", "dot") if theme.resolve_cvd(cvd) else ("solid", "solid")
-    t = theme.tokens(theme_key)
+    label = data["period_label"]
 
-    # --- tiles
-    la, fa = _latest_and_first(pa)
-    lb, fb = _latest_and_first(pb)
+    # --- the five tiles at the top
+    latest_a, first_a = profile_a["filings"][-1], profile_a["filings"][0]
+    latest_b, first_b = profile_b["filings"][-1], profile_b["filings"][0]
     tiles = [
-        tile(f"{a} total return", pct(stats[a].get("total_return_pct")),
-             data["period_label"], tone(stats[a].get("total_return_pct"))),
-        tile(f"{b} total return", pct(stats[b].get("total_return_pct")),
-             data["period_label"], tone(stats[b].get("total_return_pct"))),
-        tile("S&P 500 total return", pct(stats["SPY"].get("total_return_pct")),
-             data["period_label"], tone(stats["SPY"].get("total_return_pct"))),
-        tile(f"{a} AI mentions / 10k words", num(la["mentions_per_10k_words"]),
-             f"FY{la['fiscal_year']}, was {num(fa['mentions_per_10k_words'])} in FY{fa['fiscal_year']}"),
-        tile(f"{b} AI mentions / 10k words", num(lb["mentions_per_10k_words"]),
-             f"FY{lb['fiscal_year']}, was {num(fb['mentions_per_10k_words'])} in FY{fb['fiscal_year']}"),
+        tile(f"{a} total return", percent(stats[a].get("total_return_pct")), label,
+             "up" if stats[a].get("total_return_pct", 0) > 0 else "down"),
+        tile(f"{b} total return", percent(stats[b].get("total_return_pct")), label,
+             "up" if stats[b].get("total_return_pct", 0) > 0 else "down"),
+        tile("S&P 500 total return", percent(stats["SPY"].get("total_return_pct")), label,
+             "up" if stats["SPY"].get("total_return_pct", 0) > 0 else "down"),
+        tile(f"{a} AI mentions / 10k words", f"{latest_a['mentions_per_10k_words']:,.1f}",
+             f"FY{latest_a['fiscal_year']}, was {first_a['mentions_per_10k_words']:,.1f} "
+             f"in FY{first_a['fiscal_year']}"),
+        tile(f"{b} AI mentions / 10k words", f"{latest_b['mentions_per_10k_words']:,.1f}",
+             f"FY{latest_b['fiscal_year']}, was {first_b['mentions_per_10k_words']:,.1f} "
+             f"in FY{first_b['fiscal_year']}"),
     ]
 
-    # --- price chart (one axis, everything indexed to 100 at the period start)
-    start = pd.Timestamp(data["start"])
-    fig_price = go.Figure()
-    for ticker, color, dash_style in ((a, color_a, dash_a), (b, color_b, dash_b),
-                                      (config.BENCHMARK_TICKER, t["ink"], "dash")):
-        series = rebase(ticker_series(ticker, start))
-        label = config.BENCHMARK if ticker == config.BENCHMARK_TICKER else f"{ticker} · {config.COMPANY_NAMES[ticker]}"
-        fig_price.add_trace(go.Scatter(
-            x=series.index, y=series.values, name=label, mode="lines",
-            line=dict(color=color, width=2, dash=dash_style),
-            hovertemplate="%{y:,.0f}<extra>" + ticker + "</extra>",
+    # --- share prices, all three rebased to 100 so they can share one axis
+    price_fig = go.Figure()
+    for ticker, color in [(a, COLOR_A), (b, COLOR_B), (config.BENCHMARK_TICKER, "#33322f")]:
+        series = rebase(ticker_series(ticker, pd.Timestamp(data["start"])))
+        price_fig.add_trace(go.Scatter(
+            x=series.index, y=series.values, mode="lines",
+            name=f"{ticker} - {config.COMPANY_NAMES.get(ticker, 'S&P 500')}",
+            line=dict(color=color, width=2,
+                      dash="dash" if ticker == config.BENCHMARK_TICKER else "solid"),
         ))
-    theme.add_event_lines(fig_price, start, stats["SPY"]["end_date"], theme_key)
-    fig_price.add_hline(y=100, line_width=1, line_color=t["axis"])
-    theme.apply(fig_price, theme_key, title="Share price, rebased to 100 at period start",
-                hovermode="x unified", legend=dict(orientation="h", y=-0.2, title=""))
+    price_fig.add_hline(y=100, line_width=1, line_color="#c3c2b7")
+    price_fig.update_layout(title="Share price, rebased to 100 at the start of the period",
+                            hovermode="x unified", plot_bgcolor="white", paper_bgcolor="white",
+                            height=420, legend=dict(orientation="h", y=-0.18))
+    price_fig.update_yaxes(gridcolor="#e1e0d9")
 
-    # --- AI mentions per 10k words by fiscal year
-    fig_mentions = go.Figure()
-    # Bars are grouped and labeled per year, so pattern fills would add clutter without
-    # adding information; the category axis already separates them.
-    for profile, color in ((pa, color_a), (pb, color_b)):
-        fig_mentions.add_trace(go.Bar(
+    # --- AI mentions per fiscal year, one pair of bars per year
+    mentions_fig = go.Figure()
+    for profile, color in [(profile_a, COLOR_A), (profile_b, COLOR_B)]:
+        mentions_fig.add_trace(go.Bar(
             x=[f"FY{f['fiscal_year']}" for f in profile["filings"]],
             y=[f["mentions_per_10k_words"] for f in profile["filings"]],
-            name=f"{profile['ticker']} · {profile['name']}",
-            marker=dict(color=color, line=dict(width=0)),
+            name=f"{profile['ticker']} - {profile['name']}",
+            marker_color=color,
             text=[f"{f['mentions_per_10k_words']:.1f}" for f in profile["filings"]],
-            textposition="outside", textfont=dict(color=t["ink"], size=11), cliponaxis=False,
-            customdata=[f["ai_mentions"] for f in profile["filings"]],
-            hovertemplate="%{x}: %{y:.1f} per 10k words (%{customdata} mentions)<extra>"
-                          + profile["ticker"] + "</extra>",
+            textposition="outside", cliponaxis=False,
         ))
-    fig_mentions.update_xaxes(categoryorder="category ascending", title="")
-    fig_mentions.update_yaxes(title="Mentions per 10,000 words", rangemode="tozero")
-    theme.apply(fig_mentions, theme_key, title="How much each annual report talks about AI",
-                barmode="group", bargap=0.3, bargroupgap=0.08,
-                legend=dict(orientation="h", y=-0.2, title=""))
+    mentions_fig.update_layout(title="How much each annual report talks about AI",
+                               barmode="group", plot_bgcolor="white", paper_bgcolor="white",
+                               height=420, legend=dict(orientation="h", y=-0.18))
+    mentions_fig.update_yaxes(title="Mentions per 10,000 words", rangemode="tozero",
+                              gridcolor="#e1e0d9")
 
-    # --- R&D intensity (only when at least one company reports it)
-    fig_rd = go.Figure()
+    # --- R&D spending, only for companies that actually report it
+    rd_fig = go.Figure()
     has_rd = False
-    for profile, color, dash_style, symbol in ((pa, color_a, dash_a, "circle"),
-                                               (pb, color_b, dash_b, "square")):
-        points = [(f["fiscal_year"], f["financials"]["rd_pct_of_revenue"]) for f in profile["filings"]
-                  if f.get("financials") and f["financials"].get("rd_pct_of_revenue") is not None]
+    for profile, color in [(profile_a, COLOR_A), (profile_b, COLOR_B)]:
+        points = [(f["fiscal_year"], f["financials"]["rd_pct_of_revenue"])
+                  for f in profile["filings"]
+                  if f.get("financials") and f["financials"].get("rd_pct_of_revenue")]
         if not points:
             continue
         has_rd = True
-        fig_rd.add_trace(go.Scatter(
-            x=[f"FY{y}" for y, _ in points], y=[v for _, v in points],
-            name=f"{profile['ticker']} · {profile['name']}", mode="lines+markers",
-            line=dict(color=color, width=2, dash=dash_style),
-            marker=dict(size=9, symbol=symbol),
-            hovertemplate="%{x}: %{y:.1f}% of revenue<extra>" + profile["ticker"] + "</extra>",
+        rd_fig.add_trace(go.Scatter(
+            x=[f"FY{year}" for year, _ in points], y=[value for _, value in points],
+            name=f"{profile['ticker']} - {profile['name']}", mode="lines+markers",
+            line=dict(color=color, width=2), marker=dict(size=9),
         ))
-    fig_rd.update_yaxes(title="R&D as % of revenue", rangemode="tozero")
-    fig_rd.update_xaxes(title="", categoryorder="category ascending")
-    theme.apply(fig_rd, theme_key, title="R&D spending as a share of revenue (XBRL company facts)",
-                hovermode="x unified", legend=dict(orientation="h", y=-0.25, title=""))
-    rd_style = {} if has_rd else {"display": "none"}
+    rd_fig.update_layout(title="R&D spending as a share of revenue",
+                         plot_bgcolor="white", paper_bgcolor="white", height=340,
+                         legend=dict(orientation="h", y=-0.2))
+    rd_fig.update_yaxes(title="R&D as % of revenue", rangemode="tozero", gridcolor="#e1e0d9")
 
-    # --- filings table
+    # --- the table of every filing we read
+    header = ["Company", "Fiscal year", "Form", "Filed", "Words", "AI mentions",
+              "Per 10k words", "R&D % of revenue", "Source"]
     rows = []
-    for profile in (pa, pb):
+    for profile in [profile_a, profile_b]:
         for f in profile["filings"]:
             money = f.get("financials") or {}
-            rows.append([
-                f"{profile['ticker']} · {profile['name']}",
-                f"FY{f['fiscal_year']}", f["form"], f["filing_date"],
-                f"{f['word_count']:,}", f"{f['ai_mentions']:,}",
-                num(f["mentions_per_10k_words"]),
-                pct(money.get("rd_pct_of_revenue"), sign=False) if money.get("rd_pct_of_revenue") is not None else "n/a",
-                html.A("Open on EDGAR", href=f["url"], target="_blank", rel="noopener"),
-            ])
-    filings_table = table(
-        ["Company", "Fiscal year", "Form", "Filed", "Words", "AI mentions", "Per 10k words",
-         "R&D % of revenue", "Source"],
-        rows, numeric_from=4,
-        caption=f"Annual reports analyzed for {a} and {b}, with AI mention counts and R&D "
-                f"as a share of revenue",
-    )
+            rd = money.get("rd_pct_of_revenue")
+            rows.append(html.Tr([
+                html.Td(f"{profile['ticker']} - {profile['name']}"),
+                html.Td(f"FY{f['fiscal_year']}"),
+                html.Td(f["form"]),
+                html.Td(f["filing_date"]),
+                html.Td(f"{f['word_count']:,}", className="num"),
+                html.Td(f"{f['ai_mentions']:,}", className="num"),
+                html.Td(f"{f['mentions_per_10k_words']:,.1f}", className="num"),
+                html.Td("n/a" if rd is None else f"{rd:.1f}%", className="num"),
+                html.Td(html.A("Open on EDGAR", href=f["url"], target="_blank")),
+            ]))
 
-    # --- text alternatives (WCAG 1.1.1) for the three figures above
-    price_desc = describe_ranked(
-        f"Line chart. Share price rebased to 100 at the start of {data['period_label'].lower()}. "
-        f"Total return over the period:",
-        [(a, stats[a].get("total_return_pct") or 0.0),
-         (b, stats[b].get("total_return_pct") or 0.0),
-         ("S&P 500", stats["SPY"].get("total_return_pct") or 0.0)],
-        unit="%", digits=1,
-    )
-    mentions_desc = " ".join(
-        describe_ranked(
-            f"{profile['ticker']}, {profile['name']}, AI mentions per 10,000 words by fiscal year:",
-            [(f"FY{f['fiscal_year']}", f["mentions_per_10k_words"]) for f in profile["filings"]],
-            digits=1,
-        )
-        for profile in (pa, pb)
-    )
-    mentions_desc = "Grouped bar chart. " + mentions_desc
-    if has_rd:
-        rd_desc = " ".join(
-            describe_ranked(
-                f"{profile['ticker']} R&D as a percentage of revenue by fiscal year:",
-                [(f"FY{f['fiscal_year']}", f["financials"]["rd_pct_of_revenue"])
-                 for f in profile["filings"]
-                 if f.get("financials") and f["financials"].get("rd_pct_of_revenue") is not None],
-                unit="%", digits=1,
-            )
-            for profile in (pa, pb)
-        )
-        rd_desc = "Line chart. " + rd_desc
-    else:
-        rd_desc = "Neither company reports R&D expense in XBRL, so this chart is hidden."
+    table = html.Table(className="data", children=[
+        # Columns 4 onward hold numbers, so their headers are right-aligned too.
+        html.Thead(html.Tr([html.Th(name, className="num" if i >= 4 else "")
+                            for i, name in enumerate(header)])),
+        html.Tbody(rows),
+    ])
 
-    status = (f"Analysis complete. {a} versus {b} over {data['period_label'].lower()}. "
-              f"{a} returned {pct(stats[a].get('total_return_pct'))}, "
-              f"{b} returned {pct(stats[b].get('total_return_pct'))}.")
-
-    return (tiles, fig_price, fig_mentions, fig_rd, rd_style, filings_table,
-            price_desc, mentions_desc, rd_desc, status)
+    return (tiles, price_fig, mentions_fig, rd_fig,
+            {} if has_rd else {"display": "none"}, table)
 
 
-# ----------------------------------------------------------------- Claude summary
-
-
-@callback(Output("cmp-summary", "children"), Input("cmp-data", "data"))
-def render_summary(data):
+@callback(Output("claude-summary", "children"), Input("analysis", "data"))
+def write_summary(data):
+    """Ask Claude to compare the two companies once the data is ready."""
     if not data:
-        return html.P("Run an analysis to get Claude's comparison.", className="muted")
+        return html.P("Press Analyze to get Claude's comparison.", className="muted")
+
     a, b = data["a"], data["b"]
     try:
-        result = ai_summary.compare_companies(
+        answer = ai_summary.compare_companies(
             data["profiles"][a], data["profiles"][b],
             data["stats"][a], data["stats"][b], data["stats"]["SPY"], data["period_label"],
         )
-    except ai_summary.SummaryUnavailable as exc:
-        return notice(str(exc))
-    return summary_block(result)
+    except ai_summary.SummaryUnavailable as error:
+        return html.Div(str(error), className="notice")
+
+    note = f"Written by {answer['model']}"
+    if answer.get("cached"):
+        note += " (cached)"
+    return html.Div([
+        dcc.Markdown(answer["text"]),
+        html.P(note, className="muted small"),
+    ])

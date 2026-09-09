@@ -1,0 +1,218 @@
+/* Stylesheet for the AI Boom Scorecard dashboard */
+
+body {
+    margin: 0;
+    background: #f4f5f2;
+    color: #1f1e1e;
+    font: 16px Arial, sans-serif;
+}
+
+.page {
+    max-width: 1150px;
+    margin: 0 auto;
+    padding: 20px 30px 60px 30px;
+}
+
+h1 {
+    font-size: 30px;
+    margin-bottom: 5px;
+}
+
+h2 {
+    font-size: 22px;
+}
+
+h3 {
+    font-size: 18px;
+    margin-top: 0;
+}
+
+/* --- navigation bar ------------------------------------------------ */
+
+.navbar {
+    background: #1d2a30;
+    padding: 15px 30px;
+}
+
+.navbar a {
+    color: #e0e9ee;
+    text-decoration: none;
+    font-size: 17px;
+    margin-right: 25px;
+}
+
+.navbar a:hover {
+    color: #ffffff;
+    text-decoration: underline;
+}
+
+.brand {
+    font-weight: bold;
+    font-size: 20px;
+}
+
+/* --- cards and tiles ----------------------------------------------- */
+
+.card {
+    background: #ffffff;
+    border: 1px solid #ddddd6;
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.tile {
+    flex: 1;
+    min-width: 180px;
+    background: #ffffff;
+    border: 1px solid #ddddd6;
+    border-radius: 6px;
+    padding: 15px;
+}
+
+.tile .label {
+    font-size: 13px;
+    color: #6b6a65;
+}
+
+.tile .value {
+    font-size: 26px;
+    font-weight: bold;
+    margin: 5px 0;
+}
+
+.tile .sub {
+    font-size: 13px;
+    color: #6b6a65;
+}
+
+.up {
+    color: #0a7a2f;
+}
+
+.down {
+    color: #c4302b;
+}
+
+.muted {
+    color: #6b6a65;
+}
+
+.small {
+    font-size: 14px;
+}
+
+/* --- controls ------------------------------------------------------ */
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+.control {
+    flex: 1;
+    min-width: 220px;
+}
+
+.control label {
+    display: block;
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.controls .button {
+    margin-top: 22px;          /* line the button up with the dropdowns next to it */
+}
+
+.button {
+    background: #1f73d0;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 12px 22px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.button:hover {
+    background: #17539a;
+}
+
+/* --- links styled as cards ----------------------------------------- */
+
+.link-card {
+    display: block;
+    background: #ffffff;
+    border: 1px solid #ddddd6;
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 15px;
+    color: #1f1e1e;
+    text-decoration: none;
+}
+
+.link-card:hover {
+    border-color: #1f73d0;
+}
+
+/* --- tables -------------------------------------------------------- */
+
+table.data {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+table.data th,
+table.data td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e5e5df;
+    text-align: left;
+}
+
+table.data th {
+    background: #f0f0eb;
+}
+
+table.data td.num,
+table.data th.num {
+    text-align: right;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+/* --- notices ------------------------------------------------------- */
+
+.notice {
+    background: #f5f6f8;
+    border-left: 4px solid #3f6ad8;
+    border-radius: 4px;
+    padding: 15px;
+    margin: 15px 0;
+}
+
+.notice.error {
+    border-left-color: #c4302b;
+    background: #fbf0ef;
+}
+
+/* --- footer -------------------------------------------------------- */
+
+.footer {
+    background: #1d2a30;
+    color: #9fbccd;
+    font-size: 14px;
+    padding: 20px 30px;
+}

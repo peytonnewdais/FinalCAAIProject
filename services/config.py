@@ -26,11 +26,11 @@ BOOM_START = "2022-11-30"       # ChatGPT public launch
 BASELINE_START = "2022-10-01"   # one month of shared pre-boom baseline for the industry index
 HISTORY_START = "2020-01-01"    # deeper history for the compare page and forecast lookbacks
 
-# Eight industry buckets, 5 tickers each. Insertion order is load-bearing: theme.py zips
-# this dict against PALETTE to assign colors, and legend/stack order is list(INDUSTRIES),
-# so reordering keys repaints every chart and a 9th industry needs a matching palette slot.
-# Each ticker belongs to exactly one bucket (TICKER_INDUSTRY assumes no overlap); keys are
-# used raw as UI labels and dropdown values.
+# Eight industry buckets, 5 tickers each. Insertion order is load-bearing: INDUSTRY_COLORS
+# below zips this dict against COLORS to assign colors, and legend/stack order is
+# list(INDUSTRIES), so reordering keys repaints every chart and a 9th industry needs a
+# matching color. Each ticker belongs to exactly one bucket (TICKER_INDUSTRY assumes no
+# overlap); keys are used raw as UI labels and dropdown values.
 INDUSTRIES = {
     "Semiconductors & AI Hardware": ["NVDA", "AMD", "AVGO", "TSM", "MU"],
     "Big Tech & Cloud":             ["MSFT", "GOOGL", "AMZN", "META", "AAPL"],
@@ -63,18 +63,12 @@ TICKER_INDUSTRY = {t: ind for ind, tickers in INDUSTRIES.items() for t in ticker
 COMPANY_TICKERS = [t for tickers in INDUSTRIES.values() for t in tickers]
 TICKERS = sorted(set(COMPANY_TICKERS) | {BENCHMARK_TICKER})
 
-# Categorical palette, one slot per industry in fixed order. Colors follow the entity,
-# never its rank, so filtering never repaints the survivors.
-#
-# Every swatch clears WCAG 1.4.11's 3:1 against its chart surface. This is the *default* palette and it
-# is tuned for contrast and for the team's visual identity, NOT for color blindness - eight
-# hues cannot be told apart under dichromacy no matter how they are chosen. Users who need
-# that pick colorblind mode, which swaps in services/a11y.PALETTE_CVD and adds dash and
-# marker encoding. Both palettes are re-checked by tests/test_a11y.py.
-PALETTE = {
-    "light": ["#1f73d0", "#eb6834", "#00a571", "#c88200", "#d96e97", "#008300", "#4a3aa7", "#e34948"],
-    "dark":  ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
-}
+# One color per industry, in the same order as INDUSTRIES, so an industry keeps
+# its color on every chart.
+COLORS = ["#1f73d0", "#eb6834", "#00a571", "#c88200",
+          "#d96e97", "#008300", "#4a3aa7", "#e34948"]
+INDUSTRY_COLORS = dict(zip(INDUSTRIES, COLORS))
+INDUSTRY_COLORS[BENCHMARK] = "#33322f"
 
 EVENTS = [
     ("2022-11-30", "ChatGPT launches"),

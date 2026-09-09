@@ -51,6 +51,34 @@ h3 {
     font-size: 20px;
 }
 
+/* --- home page banner ---------------------------------------------- */
+
+.banner {
+    position: relative;
+    overflow: hidden;
+    background: #ffffff;
+    border: 1px solid #ddddd6;
+    border-radius: 6px;
+    padding: 30px;
+    margin-bottom: 20px;
+}
+
+/* The decorative trend line sits behind the text, faded so it never competes
+   with it. aria-hidden is not needed: the img has an empty alt. */
+.banner-chart {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 55%;
+    opacity: 0.16;
+    pointer-events: none;
+}
+
+.banner-text {
+    position: relative;      /* keeps the words above the chart */
+    max-width: 720px;
+}
+
 /* --- cards and tiles ----------------------------------------------- */
 
 .card {
@@ -91,6 +119,20 @@ h3 {
 .tile .sub {
     font-size: 13px;
     color: #6b6a65;
+}
+
+/* The winner and loser tiles put a small trend line next to the number. */
+.value-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.tile-spark {
+    width: 72px;
+    height: 28px;
+    flex-shrink: 0;
 }
 
 .up {
@@ -163,6 +205,13 @@ h3 {
 
 .link-card:hover {
     border-color: #1f73d0;
+}
+
+.link-card .icon {
+    display: block;
+    font-size: 22px;
+    color: #1f73d0;
+    margin-bottom: 8px;
 }
 
 /* --- tables -------------------------------------------------------- */

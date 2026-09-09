@@ -8,7 +8,15 @@ from dash import Dash, dcc, html, page_container
 from services import config
 from services.market_data import load_prices
 
-app = Dash(__name__, use_pages=True, suppress_callback_exceptions=True)
+app = Dash(
+    __name__,
+    use_pages=True,
+    suppress_callback_exceptions=True,
+    # Font Awesome supplies the glyphs on the home page cards.
+    external_stylesheets=[
+        "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css",
+    ],
+)
 app.title = config.APP_TITLE
 server = app.server          # used when the app is deployed
 

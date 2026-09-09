@@ -53,6 +53,10 @@ app = Dash(
          "content": "Which industries did the AI boom actually reward? Stock performance, "
                     "SEC filing analysis, and forecasts for 40 companies across 8 industries."},
     ],
+    # Font Awesome supplies the glyphs on the home page cards.
+    external_stylesheets=[
+        "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css",
+    ],
 )
 server = app.server
 
@@ -95,6 +99,7 @@ def nav_links(pathname: str = "/") -> list:
                               className="nav-link active" if current else "nav-link"))
     return links
 
+# Adds the App layout like a theme store, URL tracker, header (brand + nav + theme toggle), page container, footer.
 
 app.layout = html.Div(className="app", children=[
     # "light" | "dark"; seeded before first paint by assets/theme-init.js
@@ -207,11 +212,12 @@ clientside_callback(
 )
 
 
+# Highlight the active navigation link based on the current URL.
 @app.callback(Output("nav-links", "children"), Input("url", "pathname"))
 def highlight_nav(pathname):
     return nav_links(pathname or "/")
 
-
+#It basically loads the prices when the app is run, and runs the app in debug mode.
 if __name__ == "__main__":
-    load_prices()  # warm the price cache before the first request
+    load_prices()  
     app.run(debug=True)

@@ -8,22 +8,42 @@ import dash
 from dash import dcc, html
 
 from services import config
-from services.market_data import last_updated, scorecard
-from services.ui import pct, tile, tone
+from services.market_data import industry_index, last_updated, rebase, scorecard
+from services.ui import multi_sparkline_uri, pct, sparkline_uri, tile, tone
 
 dash.register_page(__name__, path="/", name="Home", title=f"{config.APP_TITLE}")
 
 CARDS = [
-    ("/industries", "📈", "Industries",
+    ("/industries", "fa-chart-line", "Industries",
      "The original chart: eight industry baskets rebased to 100 against the S&P 500, "
      "with the key AI-boom moments marked."),
-    ("/compare", "🔍", "Compare stocks",
+    ("/compare", "fa-scale-balanced", "Compare stocks",
      "Pick any two companies. We read their last five annual reports from SEC EDGAR, "
      "measure how much they talk about AI, and let Claude weigh that against the share price."),
-    ("/forecast", "🔮", "Forecast",
+    ("/forecast", "fa-arrow-trend-up", "Forecast",
      "A drift-and-volatility cone for every industry index, with an optional Claude outlook "
      "on what the numbers do and do not say."),
 ]
+
+# Vivid green/red for the winner and loser stats, matched to the CSS --good/--bad tokens.
+WIN_GREEN = "#059669"
+LOSE_RED = "#dc2626"
+
+
+def _downsample(series, count: int = 44) -> list[float]:
+    step = max(len(series) // count, 1)
+    return [float(v) for v in series.iloc[::step]]
+
+
+def _hero_accent_chart() -> str:
+    """Decorative background sparkline: a stylized AI-50 basket climbing past the S&P 500."""
+    idx = industry_index()
+    window = rebase(idx.loc[config.BOOM_START:])
+    ai50 = window.drop(columns=[config.BENCHMARK]).mean(axis=1)
+    return multi_sparkline_uri([
+        (_downsample(window[config.BENCHMARK]), "#94a3b8", "7 6"),
+        (_downsample(ai50), "#2a78d6", None),
+    ])
 
 
 def layout():
@@ -32,37 +52,50 @@ def layout():
     best, worst = industries.idxmax(), industries.idxmin()
     benchmark = float(scores[config.BENCHMARK])
 
+    idx = industry_index()
+    win_spark = sparkline_uri(_downsample(rebase(idx[best]), 30), WIN_GREEN, stroke=2.4)
+    lose_spark = sparkline_uri(_downsample(rebase(idx[worst]), 30), LOSE_RED, stroke=2.4)
+
     return html.Div([
         html.Section(className="hero", children=[
-            html.P("Team 8 final project", className="eyebrow"),
-            html.H1("Did the AI boom reward the companies that embraced it?"),
-            html.P(className="lead", children=(
-                "ChatGPT launched on November 30, 2022. Since then, forty large companies across "
-                "eight industries have taken very different paths. This dashboard compares their "
-                "stock performance, reads what they tell the SEC about artificial intelligence, "
-                "and projects where each industry could go next."
-            )),
-            html.Div(className="hero-actions", children=[
-                dcc.Link("Explore industries", href="/industries", className="btn btn-primary"),
-                dcc.Link("Compare two stocks", href="/compare", className="btn"),
-                dcc.Link("See forecasts", href="/forecast", className="btn"),
+            html.Img(src=_hero_accent_chart(), className="hero-accent-chart", alt=""),
+            html.Div(className="hero-content", children=[
+                html.P("Team 8 final project", className="eyebrow"),
+                html.H1("Did the AI boom reward the companies that embraced it?"),
+                html.P(className="lead", children=[
+                    "ChatGPT launched on ", html.Strong("November 30, 2022"),
+                    ". Since then, ", html.Strong("forty large companies"), " across ",
+                    html.Strong("eight industries"), " have taken very different paths. This "
+                    "dashboard compares their stock performance, reads what they tell the SEC "
+                    "about artificial intelligence, and projects where each industry could go next.",
+                ]),
+                html.Div(className="hero-actions", children=[
+                    dcc.Link("Explore industries", href="/industries", className="btn btn-primary"),
+                    dcc.Link("Compare two stocks", href="/compare", className="btn"),
+                    dcc.Link("See forecasts", href="/forecast", className="btn"),
+                ]),
             ]),
         ]),
 
         html.Section(className="tiles", children=[
-            tile("Biggest winner since the boom", pct(float(industries[best]), 0), best, tone(industries[best])),
-            tile("Biggest loser since the boom", pct(float(industries[worst]), 0), worst, tone(industries[worst])),
-            tile("S&P 500 over the same stretch", pct(benchmark, 0), "SPY, adjusted close", tone(benchmark)),
+            tile("Biggest winner since the boom", pct(float(industries[best]), 0), best,
+                 tone(industries[best]), variant="tile--up", spark=win_spark, emphasis=True),
+            tile("Biggest loser since the boom", pct(float(industries[worst]), 0), worst,
+                 tone(industries[worst]), variant="tile--down", spark=lose_spark, emphasis=True),
+            tile("S&P 500 over the same stretch", pct(benchmark, 0), "SPY, adjusted close",
+                 tone(benchmark), variant="tile--accent"),
             tile("Companies tracked", str(len(config.COMPANY_TICKERS)),
-                 f"{len(config.INDUSTRIES)} industries, 5 each"),
-            tile("Prices as of", last_updated(), "Yahoo Finance via yfinance"),
+                 f"{len(config.INDUSTRIES)} industries, 5 each", variant="tile--neutral"),
+            tile("Prices as of", last_updated(), "Yahoo Finance via yfinance",
+                 variant="tile--neutral"),
         ]),
 
         html.Section(className="card-grid", children=[
             dcc.Link(href=path, className="link-card", children=[
-                # The heading right below says the same thing; without this a screen reader
-                # reads "chart increasing, Industries".
-                html.Div(icon, className="icon", **{"aria-hidden": "true"}),
+                # Font Awesome glyph; the heading below says the same thing, so the
+                # icon is hidden from screen readers.
+                html.Span(className="icon", **{"aria-hidden": "true"},
+                          children=html.I(className=f"fa-solid {icon}")),
                 html.H3(title),
                 html.P(text, className="muted"),
                 html.Span("Open →", className="go"),

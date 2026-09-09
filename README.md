@@ -16,7 +16,7 @@ industry index could go next.
 |---|---|---|
 | Home | `/` | The question, the headline numbers, and links to the other pages |
 | Industries | `/industries` | Eight equal-weight industry indices rebased to 100 versus the S&P 500, with a year slider and event markers, plus the total-return bar chart |
-| Compare Stocks | `/compare` | Pick two companies. Their last five annual reports (10-K / 20-F) come from SEC EDGAR and are scanned for AI language, R&D spending comes from XBRL, and Claude writes the comparison |
+| Compare Stocks | `/compare` | Pick two companies. Their last five annual reports (10-K / 20-F) come from SEC EDGAR and are scanned for AI language, and Claude writes the comparison |
 | Forecast | `/forecast` | A trend-and-volatility cone for every industry index, with an adjustable horizon, lookback and trend assumption. Claude can write an outlook |
 
 ## Setup

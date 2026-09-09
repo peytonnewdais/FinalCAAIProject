@@ -4,7 +4,6 @@ Steps: ticker -> CIK number -> list of 10-K / 20-F filings -> download the HTML
 -> strip the tags -> count AI words. Everything downloaded is saved in
 cache/edgar so a company is only fetched once.
 """
-import datetime as dt
 import json
 import re
 import time
@@ -22,7 +21,6 @@ EDGAR_CACHE.mkdir(exist_ok=True)
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
-FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc}"
 
 HEADERS = {"User-Agent": SEC_USER_AGENT, "Accept-Encoding": "gzip, deflate"}
@@ -47,16 +45,6 @@ AI_ANY = re.compile(
     r"|\bneural[\s-]networks?\b)|\bLLMs?\b|\bAI\b"
 )
 SENTENCES = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'])")
-
-# XBRL tags companies use for R&D and revenue. We try them in order.
-RD_TAGS = [("us-gaap", "ResearchAndDevelopmentExpense"),
-           ("us-gaap", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
-           ("ifrs-full", "ResearchAndDevelopmentExpense")]
-REVENUE_TAGS = [("us-gaap", "Revenues"),
-                ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
-                ("us-gaap", "SalesRevenueNet"),
-                ("ifrs-full", "Revenue")]
-
 
 class EdgarError(Exception):
     """Something went wrong talking to EDGAR."""
@@ -193,53 +181,6 @@ def analyze_filing(filing):
     return result
 
 
-def yearly_values(facts, tags):
-    """Pull one XBRL number per fiscal year, trying each tag until one has data."""
-    for taxonomy, tag in tags:
-        units = facts.get("facts", {}).get(taxonomy, {}).get(tag, {}).get("units", {})
-        if not units:
-            continue
-
-        unit = "USD" if "USD" in units else list(units)[0]
-        by_year = {}
-        for entry in units[unit]:
-            if entry.get("form") not in ANNUAL_FORMS or not entry.get("start"):
-                continue
-
-            start = dt.date.fromisoformat(entry["start"])
-            end = dt.date.fromisoformat(entry["end"])
-            if not 330 <= (end - start).days <= 400:   # keep full years, not quarters
-                continue
-
-            previous = by_year.get(end.year)
-            if previous is None or entry.get("filed", "") > previous.get("filed", ""):
-                by_year[end.year] = entry               # keep the most recently filed value
-
-        if by_year:
-            return {year: float(entry["val"]) for year, entry in by_year.items()}, unit
-    return {}, None
-
-
-def financials(cik):
-    """R&D spending and revenue per year, from the company's XBRL facts."""
-    try:
-        facts = cached_json(f"facts_{cik}.json", 1, lambda: get(FACTS_URL.format(cik=cik)).json())
-    except (EdgarError, requests.RequestException, ValueError):
-        return {}, None                        # not every company files these
-
-    rd, unit = yearly_values(facts, RD_TAGS)
-    revenue, revenue_unit = yearly_values(facts, REVENUE_TAGS)
-
-    result = {}
-    for year in sorted(set(rd) | set(revenue)):
-        row = {"rd": rd.get(year), "revenue": revenue.get(year), "rd_pct_of_revenue": None}
-        if row["rd"] is not None and row["revenue"]:
-            row["rd_pct_of_revenue"] = round(row["rd"] / row["revenue"] * 100, 1)
-        result[year] = row
-
-    return result, unit or revenue_unit
-
-
 def company_ai_profile(ticker, years=5):
     """Everything the compare page needs about one company, oldest year first."""
     cik = cik_for(ticker)
@@ -250,15 +191,10 @@ def company_ai_profile(ticker, years=5):
     analyzed = [analyze_filing(f) for f in filings]
     analyzed.sort(key=lambda f: f["fiscal_year"])
 
-    money, unit = financials(cik)
-    for filing in analyzed:
-        filing["financials"] = money.get(filing["fiscal_year"])
-
     return {
         "ticker": ticker,
         "name": COMPANY_NAMES.get(ticker, ticker),
         "industry": TICKER_INDUSTRY.get(ticker, ""),
         "cik": cik,
-        "currency": unit,
         "filings": analyzed,
     }

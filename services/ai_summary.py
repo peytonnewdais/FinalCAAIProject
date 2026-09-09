@@ -21,8 +21,8 @@ class SummaryUnavailable(Exception):
 COMPARE_SYSTEM = """You are an equity research analyst writing for a university data-visualization \
 dashboard called "AI Boom Scorecard". You receive structured data about two public companies: how \
 often each company's annual SEC report (10-K or 20-F) discusses artificial intelligence across \
-several fiscal years, R&D spending where reported, excerpts from those filings, and how each stock \
-performed against the S&P 500 over a chosen period.
+several fiscal years, excerpts from those filings, and how each stock performed against the \
+S&P 500 over a chosen period.
 
 Write a comparison in Markdown using exactly these section headings, in this order:
 ## Verdict
@@ -112,7 +112,6 @@ def filing_rows(profile):
     """The filing numbers for one company, trimmed down to what Claude needs."""
     rows = []
     for f in profile["filings"]:
-        money = f.get("financials") or {}
         rows.append({
             "fiscal_year": f["fiscal_year"],
             "form": f["form"],
@@ -121,9 +120,6 @@ def filing_rows(profile):
             "ai_mentions": f["ai_mentions"],
             "mentions_per_10k_words": f["mentions_per_10k_words"],
             "term_counts": f["term_counts"],
-            "rd_expense": money.get("rd"),
-            "revenue": money.get("revenue"),
-            "rd_pct_of_revenue": money.get("rd_pct_of_revenue"),
         })
     return rows
 
@@ -149,7 +145,7 @@ def compare_companies(profile_a, profile_b, stats_a, stats_b, benchmark, period_
         "benchmark": {"ticker": "SPY", **benchmark},
         "companies": [
             {"ticker": p["ticker"], "name": p["name"], "industry": p["industry"],
-             "financial_currency": p.get("currency"), "stock": s, "annual_filings": filing_rows(p)}
+             "stock": s, "annual_filings": filing_rows(p)}
             for p, s in [(profile_a, stats_a), (profile_b, stats_b)]
         ],
         # Explaining the columns keeps Claude from guessing what they mean.

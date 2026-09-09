@@ -12,14 +12,7 @@ dash.register_page(__name__, path="/forecast", name="Forecast")
 
 HISTORY_DAYS = 252        # one year of real history drawn before the cone starts
 
-# The chart's y-axis: every index is rebased to 100 on its October 2022 baseline, so a
-# reading of 1200 means the industry basket is worth 12x what it was worth then - not a
-# real price. Spelled out on the axis itself since that is easy to misread at a glance.
-#
-# Two lengths: the single-index chart has the full chart height for one axis title and
-# can afford the long version, but the "all industries" grid splits that same height
-# three ways - the long version doesn't fit a subplot row and spills into the next one,
-# so the grid gets the short version instead.
+# Y-axis title: indices are rebased to 100 on their Oct 2022 baseline, not a real price; short form for the cramped grid subplots.
 Y_AXIS_TITLE = "Index level (100 = Oct 2022 baseline value)"
 Y_AXIS_TITLE_SHORT = "Index level (100 = Oct 2022)"
 
@@ -60,9 +53,7 @@ def layout():
         ]),
 
         html.Div(className="card", children=[
-            # Filled in by the callback: a plain-language read of what the current
-            # settings actually project, grounded in the same numbers as the chart
-            # and table below rather than a generic caption.
+            # Filled in by the callback: a plain-language read of the current settings, from the same numbers as the chart and table.
             html.P(id="forecast-summary", className="muted"),
             dcc.Graph(id="forecast-chart", style={"height": "650px"}),
         ]),
@@ -104,8 +95,7 @@ def add_cone(fig, history, paths, color, name, row=None, col=None, legend=False)
     fig.add_trace(go.Scatter(x=history.index, y=history.values, mode="lines", name=name,
                              line=dict(color=color, width=2), showlegend=legend), **where)
 
-    # Two shaded bands. Each is drawn as an invisible upper line, then a lower
-    # line filled up to it.
+    # Each band: an invisible upper line, then a lower line filled up to it.
     for low, high, shade, label in [("p10", "p90", 0.14, "80% range"),
                                     ("p25", "p75", 0.22, "50% range")]:
         fig.add_trace(go.Scatter(x=paths.index, y=paths[high], mode="lines",
@@ -126,10 +116,7 @@ def fade(hex_color, alpha):
     return f"rgba({r},{g},{b},{alpha})"
 
 
-# Grammatical clauses for LOOKBACKS, used after "returns over ...". LOOKBACKS' own labels
-# are UI option text ("Since ChatGPT launch") - fine capitalized at the start of a radio
-# button, wrong lowercased mid-sentence ("chatgpt" loses its brand capitalization), and
-# "since ChatGPT launch" cannot follow "over" grammatically either way.
+# Clauses for LOOKBACKS used after "returns over ..."; LOOKBACKS' own labels are UI text that won't fit mid-sentence.
 LOOKBACK_CLAUSE = {
     "1y": "the last year",
     "2y": "the last 2 years",
@@ -138,12 +125,7 @@ LOOKBACK_CLAUSE = {
 
 
 def summary_text(view, horizon, lookback, drift, results, names):
-    """A plain-language read of what the chart shows, grounded in its own numbers.
-
-    The chart and table give the figures; this says in words what they mean, so a
-    reader is not left to work out on their own that the shaded band is a range of
-    outcomes rather than an error bar, or that "100" is not a price.
-    """
+    """A plain-language read of what the chart shows, grounded in its own numbers."""
     lookback_clause = LOOKBACK_CLAUSE[lookback]
     drift_label = DRIFT_MODES[drift].lower()   # "Historical trend" -> "historical trend"
 

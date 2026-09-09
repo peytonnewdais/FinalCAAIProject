@@ -37,6 +37,7 @@ def nav_links(pathname: str = "/") -> list:
         for path, label in NAV
     ]
 
+# Adds the App layout like a theme store, URL tracker, header (brand + nav + theme toggle), page container, footer.
 
 app.layout = html.Div(className="app", children=[
     # "light" | "dark"; seeded before first paint by assets/theme-init.js
@@ -89,12 +90,12 @@ clientside_callback(
     Input("theme", "data"),
 )
 
-
+# Highlight the active navigation link based on the current URL.
 @app.callback(Output("nav-links", "children"), Input("url", "pathname"))
 def highlight_nav(pathname):
     return nav_links(pathname or "/")
 
-
+#It basically loads the prices when the app is run, and runs the app in debug mode.
 if __name__ == "__main__":
-    load_prices()  # warm the price cache before the first request
+    load_prices()  
     app.run(debug=True)

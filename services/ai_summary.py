@@ -1,13 +1,9 @@
-"""Claude-generated narratives: the two-company comparison and the industry outlook.
+"""Asks Claude to write the two narratives in the app: the stock comparison and
+the industry outlook.
 
-Calls go through the official Anthropic SDK. Responses are cached on disk keyed by
-the exact prompt, so re-rendering a page (or toggling the theme) never re-bills.
-
-This module is the app's one runtime (user-facing) use of AI, distinct from AI used as a
-development tool elsewhere in this repo. AI usage: see docs/AI_USAGE.md.
+Answers are saved in cache/summaries and keyed by the prompt, so asking the same
+question twice never costs a second API call.
 """
-from __future__ import annotations
-
 import hashlib
 import json
 import os
@@ -17,11 +13,9 @@ from .config import CACHE_DIR, CLAUDE_EFFORT, CLAUDE_MODEL
 SUMMARY_CACHE = CACHE_DIR / "summaries"
 SUMMARY_CACHE.mkdir(exist_ok=True)
 
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
-
 
 class SummaryUnavailable(Exception):
-    """A user-facing reason why no Claude summary could be produced."""
+    """No summary could be written. The message is shown to the user."""
 
 
 COMPARE_SYSTEM = """You are an equity research analyst writing for a university data-visualization \
@@ -68,113 +62,54 @@ reversed, or a range so wide the median is not informative).
 No preamble before the first heading."""
 
 
-def _cache_path(tag: str, system: str, user: str) -> "os.PathLike[str]":
-    key = hashlib.sha256(json.dumps([CLAUDE_MODEL, CLAUDE_EFFORT, system, user]).encode()).hexdigest()
-    return SUMMARY_CACHE / f"{tag}_{key[:20]}.json"
+def ask_claude(tag, system, user, max_tokens=6000):
+    """Send one request to Claude. Returns {"text", "model", "cached"}."""
+    # The file name is a hash of the prompt, so a changed prompt gets a new answer.
+    key = hashlib.sha256(
+        json.dumps([CLAUDE_MODEL, CLAUDE_EFFORT, system, user]).encode()).hexdigest()
+    path = SUMMARY_CACHE / f"{tag}_{key[:20]}.json"
 
-
-def _extract_text(message) -> str:
-    return "".join(block.text for block in message.content if block.type == "text").strip()
-
-
-def _stream(messages_api, request: dict, **extra):
-    with messages_api.stream(**request, **extra) as stream:
-        return stream.get_final_message()
-
-
-def _run(client, request: dict):
-    """Stream the response, adapting the request to what the chosen model accepts.
-
-    Server-side refusal fallbacks and the ``effort`` parameter only exist on some
-    models (Haiku 4.5, for example, rejects effort). When the API turns one of them
-    down, retry without it instead of failing the page.
-    """
-    import anthropic
-
-    request = dict(request)
-    use_fallbacks = True
-    for _ in range(4):
-        try:
-            if use_fallbacks:
-                return _stream(client.beta.messages, request,
-                               betas=[FALLBACK_BETA], fallbacks="default")
-            return _stream(client.messages, request)
-        except anthropic.BadRequestError as exc:
-            text = str(exc).lower()
-            if "effort" in text and "output_config" in request:
-                request.pop("output_config")
-            elif use_fallbacks and ("fallback" in text or "beta" in text):
-                use_fallbacks = False
-            else:
-                raise
-    raise SummaryUnavailable("Claude rejected the request even without optional parameters.")
-
-
-def generate(tag: str, system: str, user: str, max_tokens: int = 6000) -> dict:
-    """Return {"text", "model", "cached"} or raise SummaryUnavailable with a friendly reason."""
-    path = _cache_path(tag, system, user)
     if path.exists():
-        cached = json.loads(path.read_text(encoding="utf-8"))
-        cached["cached"] = True
-        return cached
+        answer = json.loads(path.read_text(encoding="utf-8"))
+        answer["cached"] = True
+        return answer
 
     try:
         import anthropic
-    except ImportError as exc:
-        raise SummaryUnavailable("The anthropic package is not installed. Run: pip install anthropic") from exc
+    except ImportError:
+        raise SummaryUnavailable("The anthropic package is not installed. "
+                                 "Run: pip install anthropic")
 
-    if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
-        raise SummaryUnavailable(
-            "No Claude credentials found. Copy .env.example to .env and set ANTHROPIC_API_KEY, "
-            "then restart the app."
-        )
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise SummaryUnavailable("No Claude API key found. Copy .env.example to .env, "
+                                 "set ANTHROPIC_API_KEY, then restart the app.")
 
-    request = dict(
-        model=CLAUDE_MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-        output_config={"effort": CLAUDE_EFFORT},
-    )
     try:
         client = anthropic.Anthropic()
-        message = _run(client, request)
-    except anthropic.AuthenticationError as exc:
-        raise SummaryUnavailable("Claude rejected the API key. Check ANTHROPIC_API_KEY in .env.") from exc
-    except anthropic.PermissionDeniedError as exc:
-        raise SummaryUnavailable("This API key is not allowed to use the configured model.") from exc
-    except anthropic.NotFoundError as exc:
-        raise SummaryUnavailable(f"Model '{CLAUDE_MODEL}' was not found. Check CLAUDE_MODEL in .env.") from exc
-    except anthropic.RateLimitError as exc:
-        raise SummaryUnavailable("Claude is rate-limited right now. Try again in a minute.") from exc
-    except anthropic.APIStatusError as exc:
-        raise SummaryUnavailable(f"Claude API error {exc.status_code}: {exc.message}") from exc
-    except anthropic.APIConnectionError as exc:
-        raise SummaryUnavailable("Could not reach the Claude API. Check your connection.") from exc
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+    except anthropic.AuthenticationError:
+        raise SummaryUnavailable("Claude rejected the API key. Check ANTHROPIC_API_KEY in .env.")
+    except anthropic.RateLimitError:
+        raise SummaryUnavailable("Claude is rate-limited right now. Try again in a minute.")
+    except anthropic.APIError as error:
+        raise SummaryUnavailable(f"Claude API error: {error}")
 
-    if message.stop_reason == "refusal":
-        raise SummaryUnavailable("Claude declined to write this summary.")
-
-    text = _extract_text(message)
+    text = "".join(block.text for block in message.content if block.type == "text").strip()
     if not text:
         raise SummaryUnavailable("Claude returned an empty response.")
 
-    result = {
-        "text": text,
-        "model": message.model,
-        "cached": False,
-        "usage": {
-            "input_tokens": message.usage.input_tokens,
-            "output_tokens": message.usage.output_tokens,
-        },
-    }
-    path.write_text(json.dumps(result), encoding="utf-8")
-    return result
+    answer = {"text": text, "model": message.model, "cached": False}
+    path.write_text(json.dumps(answer), encoding="utf-8")
+    return answer
 
 
-# --------------------------------------------------------------------------- prompts
-
-def _filing_rows(profile: dict) -> list[dict]:
+def filing_rows(profile):
+    """The filing numbers for one company, trimmed down to what Claude needs."""
     rows = []
     for f in profile["filings"]:
         money = f.get("financials") or {}
@@ -193,30 +128,31 @@ def _filing_rows(profile: dict) -> list[dict]:
     return rows
 
 
-def _excerpts(profile: dict, per_filing: int = 8) -> str:
+def excerpts(profile, per_filing=8):
+    """The AI sentences from each filing, as text for the prompt."""
     lines = [f"### {profile['name']} ({profile['ticker']}) filing excerpts"]
     for f in profile["filings"]:
         snippets = f.get("snippets", [])[:per_filing]
-        if not snippets:
-            continue
-        lines.append(f"FY{f['fiscal_year']} {f['form']} (filed {f['filing_date']}):")
-        lines.extend(f"- {s}" for s in snippets)
+        if snippets:
+            lines.append(f"FY{f['fiscal_year']} {f['form']} (filed {f['filing_date']}):")
+            lines += [f"- {s}" for s in snippets]
     return "\n".join(lines)
 
 
-def compare_companies(profile_a: dict, profile_b: dict, stats_a: dict, stats_b: dict,
-                      benchmark: dict, period_label: str) -> dict:
+def compare_companies(profile_a, profile_b, stats_a, stats_b, benchmark, period_label):
+    """Ask Claude to compare two companies' AI language against their share price."""
     system = COMPARE_SYSTEM.format(a_name=profile_a["name"], a_ticker=profile_a["ticker"],
                                    b_name=profile_b["name"], b_ticker=profile_b["ticker"])
-    payload = {
+    data = {
         "period": {"label": period_label, "start": benchmark.get("start_date"),
                    "end": benchmark.get("end_date")},
         "benchmark": {"ticker": "SPY", **benchmark},
         "companies": [
             {"ticker": p["ticker"], "name": p["name"], "industry": p["industry"],
-             "financial_currency": p.get("currency"), "stock": s, "annual_filings": _filing_rows(p)}
-            for p, s in ((profile_a, stats_a), (profile_b, stats_b))
+             "financial_currency": p.get("currency"), "stock": s, "annual_filings": filing_rows(p)}
+            for p, s in [(profile_a, stats_a), (profile_b, stats_b)]
         ],
+        # Explaining the columns keeps Claude from guessing what they mean.
         "notes": [
             "ai_mentions counts every occurrence of: artificial intelligence, AI, machine learning, "
             "generative AI, large language model / LLM, deep learning, neural network.",
@@ -224,14 +160,13 @@ def compare_companies(profile_a: dict, profile_b: dict, stats_a: dict, stats_b: 
             "Stock figures are total returns on adjusted closes over the period.",
         ],
     }
-    user = (
-        "DATA (JSON):\n" + json.dumps(payload, indent=1, default=str) + "\n\n"
-        + _excerpts(profile_a) + "\n\n" + _excerpts(profile_b)
-    )
-    return generate("compare", system, user)
+    user = ("DATA (JSON):\n" + json.dumps(data, indent=1, default=str) + "\n\n"
+            + excerpts(profile_a) + "\n\n" + excerpts(profile_b))
+    return ask_claude("compare", system, user)
 
 
-def industry_outlook(rows: list[dict], settings: dict) -> dict:
-    payload = {"model_settings": settings, "industries": rows}
-    user = "FORECAST OUTPUT (JSON):\n" + json.dumps(payload, indent=1, default=str)
-    return generate("forecast", FORECAST_SYSTEM, user)
+def industry_outlook(rows, settings):
+    """Ask Claude to explain the forecast numbers for all the industries."""
+    user = "FORECAST OUTPUT (JSON):\n" + json.dumps(
+        {"model_settings": settings, "industries": rows}, indent=1, default=str)
+    return ask_claude("forecast", FORECAST_SYSTEM, user)

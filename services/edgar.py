@@ -1,21 +1,14 @@
-"""SEC EDGAR client: ticker -> CIK, annual filings, AI-language scoring, R&D facts.
+"""Reads annual reports from SEC EDGAR and counts how much they talk about AI.
 
-Every request carries the SEC-required User-Agent and is throttled well below the
-10 requests/second fair-access limit. Parsed filings are cached on disk under
-cache/edgar so a company is only downloaded once.
-
-AI usage: see docs/AI_USAGE.md.
+Steps: ticker -> CIK number -> list of 10-K / 20-F filings -> download the HTML
+-> strip the tags -> count AI words. Everything downloaded is saved in
+cache/edgar so a company is only fetched once.
 """
-from __future__ import annotations
-
 import datetime as dt
 import json
 import re
-import threading
 import time
 import warnings
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
@@ -33,11 +26,10 @@ FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc}"
 
 HEADERS = {"User-Agent": SEC_USER_AGENT, "Accept-Encoding": "gzip, deflate"}
-ANNUAL_FORMS = {"10-K", "20-F", "40-F"}
-MIN_INTERVAL = 0.15          # seconds between requests (~6-7 req/s)
-MAX_SNIPPETS = 12
+ANNUAL_FORMS = ["10-K", "20-F", "40-F"]
 
-# Per-term patterns for the breakdown; "AI" stays case-sensitive so "ai" prose never counts.
+# One pattern per AI term, used for the breakdown by term. "AI" is case
+# sensitive so ordinary words containing "ai" are not counted.
 AI_TERMS = {
     "artificial intelligence": re.compile(r"\bartificial[\s-]intelligence\b", re.I),
     "AI": re.compile(r"\bAI\b"),
@@ -47,233 +39,221 @@ AI_TERMS = {
     "deep learning": re.compile(r"\bdeep[\s-]learning\b", re.I),
     "neural network": re.compile(r"\bneural[\s-]networks?\b", re.I),
 }
-# One union pattern so each occurrence is counted exactly once in the total.
+
+# One combined pattern for the total, so overlapping terms are not double counted.
 AI_ANY = re.compile(
-    r"(?i:\bartificial[\s-]intelligence\b|\bmachine[\s-]learning\b|\bgenerative\s+AI\b|\bgen\s?AI\b"
-    r"|\blarge[\s-]language[\s-]models?\b|\bdeep[\s-]learning\b|\bneural[\s-]networks?\b)"
-    r"|\bLLMs?\b|\bAI\b"
+    r"(?i:\bartificial[\s-]intelligence\b|\bmachine[\s-]learning\b|\bgenerative\s+AI\b"
+    r"|\bgen\s?AI\b|\blarge[\s-]language[\s-]models?\b|\bdeep[\s-]learning\b"
+    r"|\bneural[\s-]networks?\b)|\bLLMs?\b|\bAI\b"
 )
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'])")
+SENTENCES = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'])")
 
-RD_CONCEPTS = [
-    ("us-gaap", "ResearchAndDevelopmentExpense"),
-    ("us-gaap", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
-    ("ifrs-full", "ResearchAndDevelopmentExpense"),
-]
-REVENUE_CONCEPTS = [
-    ("us-gaap", "Revenues"),
-    ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
-    ("us-gaap", "SalesRevenueNet"),
-    ("ifrs-full", "Revenue"),
-]
+# XBRL tags companies use for R&D and revenue. We try them in order.
+RD_TAGS = [("us-gaap", "ResearchAndDevelopmentExpense"),
+           ("us-gaap", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
+           ("ifrs-full", "ResearchAndDevelopmentExpense")]
+REVENUE_TAGS = [("us-gaap", "Revenues"),
+                ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
+                ("us-gaap", "SalesRevenueNet"),
+                ("ifrs-full", "Revenue")]
 
 
-class EdgarError(RuntimeError):
-    """Raised when EDGAR data cannot be fetched or a ticker is unknown."""
+class EdgarError(Exception):
+    """Something went wrong talking to EDGAR."""
 
 
-_lock = threading.Lock()
-_last_request = 0.0
-
-
-def _get(url: str, timeout: int = 120) -> requests.Response:
-    """Throttled GET with the SEC User-Agent and a few retries on throttling."""
-    global _last_request
-    last_status = None
+def get(url):
+    """Download a URL from EDGAR, waiting and retrying if we are asked to slow down."""
     for attempt in range(4):
-        with _lock:
-            wait = MIN_INTERVAL - (time.monotonic() - _last_request)
-            if wait > 0:
-                time.sleep(wait)
-            _last_request = time.monotonic()
-        response = requests.get(url, headers=HEADERS, timeout=timeout)
-        last_status = response.status_code
+        time.sleep(0.15)                       # stay under SEC's 10 requests/second limit
+        response = requests.get(url, headers=HEADERS, timeout=120)
         if response.status_code == 200:
             return response
         if response.status_code in (403, 429, 503):
-            time.sleep(2.0 * (attempt + 1))
+            time.sleep(2 * (attempt + 1))      # busy: wait longer each try
             continue
-        response.raise_for_status()
-    raise EdgarError(f"EDGAR request failed with status {last_status}: {url}")
+        raise EdgarError(f"EDGAR returned status {response.status_code} for {url}")
+    raise EdgarError(f"EDGAR kept refusing the request: {url}")
 
 
-def _cached_json(path: Path, max_age_days: float, fetch) -> dict:
+def cached_json(filename, max_age_days, download):
+    """Return a saved JSON file, or download it again if it is missing or old."""
+    path = EDGAR_CACHE / filename
     if path.exists():
-        age = (time.time() - path.stat().st_mtime) / 86400
-        if age <= max_age_days:
+        age_days = (time.time() - path.stat().st_mtime) / 86400
+        if age_days <= max_age_days:
             return json.loads(path.read_text(encoding="utf-8"))
-    data = fetch()
+
+    data = download()
     path.write_text(json.dumps(data), encoding="utf-8")
     return data
 
 
-def ticker_map() -> dict:
-    data = _cached_json(EDGAR_CACHE / "company_tickers.json", 7, lambda: _get(TICKERS_URL).json())
-    return {row["ticker"].upper(): row for row in data.values()}
+def cik_for(ticker):
+    """Look up a company's CIK number, which is how EDGAR identifies companies."""
+    data = cached_json("company_tickers.json", 7, lambda: get(TICKERS_URL).json())
+    for row in data.values():
+        if row["ticker"].upper() == ticker.upper():
+            return int(row["cik_str"])
+    raise EdgarError(f"{ticker} is not in SEC's ticker list.")
 
 
-def cik_for(ticker: str) -> int:
-    row = ticker_map().get(ticker.upper())
-    if not row:
-        raise EdgarError(f"{ticker} is not in SEC's ticker list.")
-    return int(row["cik_str"])
+def annual_filings(cik, count=5):
+    """The most recent annual reports, one per fiscal year, newest first."""
+    submissions = cached_json(f"submissions_{cik}.json", 1,
+                              lambda: get(SUBMISSIONS_URL.format(cik=cik)).json())
 
-
-def submissions(cik: int) -> dict:
-    return _cached_json(EDGAR_CACHE / f"submissions_{cik}.json", 1,
-                        lambda: _get(SUBMISSIONS_URL.format(cik=cik)).json())
-
-
-def _filing_blocks(cik: int):
-    """Yield the 'recent' filing block, then the older blocks EDGAR splits into extra files."""
-    filings = submissions(cik)["filings"]
-    yield filings["recent"]
-    for extra in filings.get("files", []):
+    # EDGAR splits older filings into extra files, so collect those blocks too.
+    blocks = [submissions["filings"]["recent"]]
+    for extra in submissions["filings"].get("files", []):
         name = extra["name"]
-        yield _cached_json(EDGAR_CACHE / name, 30,
-                           lambda n=name: _get(f"https://data.sec.gov/submissions/{n}").json())
+        blocks.append(cached_json(name, 30,
+                                  lambda n=name: get(f"https://data.sec.gov/submissions/{n}").json()))
 
-
-def annual_filings(cik: int, count: int = 5) -> list[dict]:
-    """Most recent annual reports (10-K / 20-F / 40-F), one per fiscal year, newest first."""
-    filings, seen_years = [], set()
-    for block in _filing_blocks(cik):
+    filings, seen_years = [], []
+    for block in blocks:
         for i, form in enumerate(block["form"]):
             if form not in ANNUAL_FORMS:
                 continue
+
             report_date = block["reportDate"][i] or block["filingDate"][i]
-            fiscal_year = int(report_date[:4])
-            if fiscal_year in seen_years:
+            year = int(report_date[:4])
+            if year in seen_years:              # one report per fiscal year is enough
                 continue
-            seen_years.add(fiscal_year)
+            seen_years.append(year)
+
             accession = block["accessionNumber"][i]
-            doc = block["primaryDocument"][i]
             filings.append({
                 "form": form,
-                "fiscal_year": fiscal_year,
+                "fiscal_year": year,
                 "filing_date": block["filingDate"][i],
-                "report_date": report_date,
                 "accession": accession,
-                "url": ARCHIVE_URL.format(cik=cik, accession=accession.replace("-", ""), doc=doc),
+                "url": ARCHIVE_URL.format(cik=cik, accession=accession.replace("-", ""),
+                                          doc=block["primaryDocument"][i]),
             })
             if len(filings) >= count:
                 return filings
     return filings
 
 
-def _decode(content: bytes) -> str:
-    """EDGAR  documents are UTF-8 or Windows-1252; never let a wrong guess mangle quotes."""
+def html_to_text(content):
+    """Turn the filing's HTML into plain text, one long string."""
     try:
-        return content.decode("utf-8")
+        html = content.decode("utf-8")
     except UnicodeDecodeError:
-        return content.decode("cp1252", errors="replace")
+        html = content.decode("cp1252", errors="replace")   # some older filings
 
-
-def _html_to_text(content: bytes) -> str:
-    soup = BeautifulSoup(_decode(content), "lxml")
+    soup = BeautifulSoup(html, "lxml")
     for tag in soup(["script", "style", "ix:header"]):
         tag.decompose()
     return re.sub(r"\s+", " ", soup.get_text(" "))
 
 
-def _snippets(text: str, limit: int = MAX_SNIPPETS) -> list[str]:
-    """Sentences that mention AI, ranked by how densely they discuss it."""
-    candidates, seen = [], set()
-    for sentence in SENTENCE_SPLIT.split(text):
+def ai_snippets(text, limit=12):
+    """Sentences that mention AI, the densest ones first. Claude reads these."""
+    found, seen_starts = [], []
+    for sentence in SENTENCES.split(text):
         sentence = sentence.strip()
-        if not 60 <= len(sentence) <= 420:
+        if not 60 <= len(sentence) <= 420:      # skip fragments and giant blocks
             continue
+
         hits = len(AI_ANY.findall(sentence))
-        if not hits:
+        start = sentence[:80].lower()
+        if hits == 0 or start in seen_starts:   # skip repeated boilerplate
             continue
-        key = sentence[:80].lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append((hits, -len(sentence), sentence))
-    candidates.sort(reverse=True)
-    return [c[2] for c in candidates[:limit]]
+
+        seen_starts.append(start)
+        found.append((hits, -len(sentence), sentence))
+
+    found.sort(reverse=True)
+    return [sentence for _, _, sentence in found[:limit]]
 
 
-def analyze_filing(filing: dict) -> dict:
-    """Download one annual report and score its AI language. Cached by accession number."""
+def analyze_filing(filing):
+    """Download one annual report and count its AI words. Saved by accession number."""
     path = EDGAR_CACHE / f"filing_{filing['accession']}.json"
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
 
-    text = _html_to_text(_get(filing["url"]).content)
+    text = html_to_text(get(filing["url"]).content)
     words = max(len(text.split()), 1)
-    total = len(AI_ANY.findall(text))
-    result = {
-        **filing,
+    mentions = len(AI_ANY.findall(text))
+
+    result = dict(filing)
+    result.update({
         "word_count": words,
-        "ai_mentions": total,
-        "mentions_per_10k_words": round(total / words * 10_000, 2),
-        "term_counts": {term: len(p.findall(text)) for term, p in AI_TERMS.items()},
-        "snippets": _snippets(text),
-    }
+        "ai_mentions": mentions,
+        # Longer reports naturally contain more of everything, so divide by length.
+        "mentions_per_10k_words": round(mentions / words * 10000, 2),
+        "term_counts": {term: len(pattern.findall(text)) for term, pattern in AI_TERMS.items()},
+        "snippets": ai_snippets(text),
+    })
+
     path.write_text(json.dumps(result), encoding="utf-8")
     return result
 
 
-def company_facts(cik: int) -> dict:
-    try:
-        return _cached_json(EDGAR_CACHE / f"facts_{cik}.json", 1,
-                            lambda: _get(FACTS_URL.format(cik=cik)).json())
-    except (EdgarError, requests.RequestException, ValueError):
-        return {}
-
-
-def _annual_values(facts: dict, concepts) -> tuple[dict, str | None]:
-    """{fiscal_year_end_year: value} for the first concept that has full-year data."""
-    for taxonomy, concept in concepts:
-        units = facts.get("facts", {}).get(taxonomy, {}).get(concept, {}).get("units", {})
+def yearly_values(facts, tags):
+    """Pull one XBRL number per fiscal year, trying each tag until one has data."""
+    for taxonomy, tag in tags:
+        units = facts.get("facts", {}).get(taxonomy, {}).get(tag, {}).get("units", {})
         if not units:
             continue
-        unit = "USD" if "USD" in units else next(iter(units))
-        by_year: dict[int, dict] = {}
+
+        unit = "USD" if "USD" in units else list(units)[0]
+        by_year = {}
         for entry in units[unit]:
             if entry.get("form") not in ANNUAL_FORMS or not entry.get("start"):
                 continue
+
             start = dt.date.fromisoformat(entry["start"])
             end = dt.date.fromisoformat(entry["end"])
-            if not 330 <= (end - start).days <= 400:
+            if not 330 <= (end - start).days <= 400:   # keep full years, not quarters
                 continue
-            year = end.year
-            previous = by_year.get(year)
+
+            previous = by_year.get(end.year)
             if previous is None or entry.get("filed", "") > previous.get("filed", ""):
-                by_year[year] = entry
+                by_year[end.year] = entry               # keep the most recently filed value
+
         if by_year:
-            return {year: float(e["val"]) for year, e in by_year.items()}, unit
+            return {year: float(entry["val"]) for year, entry in by_year.items()}, unit
     return {}, None
 
 
-def financials(cik: int) -> tuple[dict, str | None]:
-    """{year: {"rd": ..., "revenue": ..., "rd_pct_of_revenue": ...}} from XBRL company facts."""
-    facts = company_facts(cik)
-    rd, unit = _annual_values(facts, RD_CONCEPTS)
-    revenue, rev_unit = _annual_values(facts, REVENUE_CONCEPTS)
-    out = {}
+def financials(cik):
+    """R&D spending and revenue per year, from the company's XBRL facts."""
+    try:
+        facts = cached_json(f"facts_{cik}.json", 1, lambda: get(FACTS_URL.format(cik=cik)).json())
+    except (EdgarError, requests.RequestException, ValueError):
+        return {}, None                        # not every company files these
+
+    rd, unit = yearly_values(facts, RD_TAGS)
+    revenue, revenue_unit = yearly_values(facts, REVENUE_TAGS)
+
+    result = {}
     for year in sorted(set(rd) | set(revenue)):
         row = {"rd": rd.get(year), "revenue": revenue.get(year), "rd_pct_of_revenue": None}
         if row["rd"] is not None and row["revenue"]:
             row["rd_pct_of_revenue"] = round(row["rd"] / row["revenue"] * 100, 1)
-        out[year] = row
-    return out, unit or rev_unit
+        result[year] = row
+
+    return result, unit or revenue_unit
 
 
-def company_ai_profile(ticker: str, years: int = 5) -> dict:
-    """Everything the compare page needs for one company, filings oldest -> newest."""
+def company_ai_profile(ticker, years=5):
+    """Everything the compare page needs about one company, oldest year first."""
     cik = cik_for(ticker)
     filings = annual_filings(cik, years)
     if not filings:
         raise EdgarError(f"No annual reports found on EDGAR for {ticker}.")
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        analyzed = list(pool.map(analyze_filing, filings))
+
+    analyzed = [analyze_filing(f) for f in filings]
     analyzed.sort(key=lambda f: f["fiscal_year"])
+
     money, unit = financials(cik)
     for filing in analyzed:
         filing["financials"] = money.get(filing["fiscal_year"])
+
     return {
         "ticker": ticker,
         "name": COMPANY_NAMES.get(ticker, ticker),

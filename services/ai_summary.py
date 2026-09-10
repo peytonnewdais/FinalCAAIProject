@@ -3,6 +3,10 @@ the industry outlook.
 
 Answers are saved in cache/summaries and keyed by the prompt, so asking the same
 question twice never costs a second API call.
+
+We used AI to help us generate our system prompt as well as understand how to use the Claude API endpoints.
+We made sure that it there were "outs" for claude in every portion so that it didn't give back false data or
+cause fatal errors. 
 """
 import hashlib
 import json

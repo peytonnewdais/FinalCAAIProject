@@ -1,4 +1,15 @@
-"""Forecast page: a cone of possible futures for each industry index."""
+"""Forecast page: a cone of possible futures for each industry index.
+
+For every index we measure a trend and a volatility from recent daily returns
+and project them forward. The maths lives in services/forecast.py; this file is
+just the page layout and the callbacks that redraw the chart and table.
+This page mainly holds the formatting which claude helped us develop, but also holds the update functions as well 
+which we definitely needed help developing. Lastly we had claude create a button to generate a claude summary on this information. 
+At one point this included all of the forecasting functions, but we eventually had claude refactor it out to make the page designs more simple. 
+
+
+
+"""
 import dash
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html
@@ -10,16 +21,10 @@ from services.market_data import industry_index, scorecard
 
 dash.register_page(__name__, path="/forecast", name="Forecast")
 
-HISTORY_DAYS = 252        # one year of real history drawn before the cone starts
+HISTORY_DAYS = 252        # a year of real history is drawn before the cone starts
 
-# The chart's y-axis: every index is rebased to 100 on its October 2022 baseline, so a
-# reading of 1200 means the industry basket is worth 12x what it was worth then - not a
-# real price. Spelled out on the axis itself since that is easy to misread at a glance.
-#
-# Two lengths: the single-index chart has the full chart height for one axis title and
-# can afford the long version, but the "all industries" grid splits that same height
-# three ways - the long version doesn't fit a subplot row and spills into the next one,
-# so the grid gets the short version instead.
+# The indices are rebased to 100 on their Oct 2022 baseline, so the y-axis shows an
+# index level rather than a real price. The short version is for the cramped 3x3 grid.
 Y_AXIS_TITLE = "Index level (100 = Oct 2022 baseline value)"
 Y_AXIS_TITLE_SHORT = "Index level (100 = Oct 2022)"
 
@@ -98,8 +103,7 @@ def add_cone(fig, history, paths, color, name, row=None, col=None, legend=False)
     fig.add_trace(go.Scatter(x=history.index, y=history.values, mode="lines", name=name,
                              line=dict(color=color, width=2), showlegend=legend), **where)
 
-    # Two shaded bands. Each is drawn as an invisible upper line, then a lower
-    # line filled up to it.
+    # Each band is an invisible upper line, then a lower line filled up to it.
     for low, high, shade, label in [("p10", "p90", 0.14, "80% range"),
                                     ("p25", "p75", 0.22, "50% range")]:
         fig.add_trace(go.Scatter(x=paths.index, y=paths[high], mode="lines",
@@ -133,7 +137,7 @@ def update_forecast(view, horizon, lookback):
     names = list(index.columns)
 
     if view == "all":
-        # Nine small charts in a 3x3 grid, one per index.
+        # One small chart per index, laid out in a 3x3 grid.
         fig = make_subplots(rows=3, cols=3, subplot_titles=names,
                             vertical_spacing=0.09, horizontal_spacing=0.06)
         for i, name in enumerate(names):
@@ -143,7 +147,7 @@ def update_forecast(view, horizon, lookback):
                      row=i // 3 + 1, col=i % 3 + 1)
         fig.update_layout(title=f"{horizon}-month forecast for every index", showlegend=False)
         fig.update_annotations(font_size=12)
-        # One label is enough for a 3x3 grid; every subplot shares the same scale.
+        # Every subplot shares the same scale, so one label down the left is enough.
         for row in (1, 2, 3):
             fig.update_yaxes(title_text=Y_AXIS_TITLE_SHORT, row=row, col=1,
                              title_font=dict(size=10))
@@ -161,7 +165,7 @@ def update_forecast(view, horizon, lookback):
     fig.update_xaxes(gridcolor="#e1e0d9")
     fig.update_yaxes(gridcolor="#e1e0d9")
 
-    # --- the table under the chart
+    # The table under the chart, one row per index.
     since_boom = scorecard()
     header = ["Index", "Today", "Since boom", "Trend used", "Volatility",
               f"Middle in {horizon} mo", "10th pct", "90th pct", "Chance of a gain"]

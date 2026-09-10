@@ -1,6 +1,6 @@
 # AI Boom Scorecard
 **Team 8 - Peyton, Asad, Maya**
-[Live On Render](https://aiboomscorecard.onrender.com/)
+## [Live On Render](https://aiboomscorecard.onrender.com/)
 > Over the past five years, which companies adapted around AI most successfully, and has the
 > stock market rewarded that adoption?
 

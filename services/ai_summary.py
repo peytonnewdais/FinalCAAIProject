@@ -3,6 +3,10 @@ the industry outlook.
 
 Answers are saved in cache/summaries and keyed by the prompt, so asking the same
 question twice never costs a second API call.
+
+We used AI to help us generate our system prompt as well as understand how to use the Claude API endpoints.
+We made sure that it there were "outs" for claude in every portion so that it didn't give back false data or
+cause fatal errors. 
 """
 import hashlib
 import json
@@ -43,9 +47,11 @@ No preamble before the first heading."""
 FORECAST_SYSTEM = """You are a markets analyst writing for a university data-visualization dashboard \
 called "AI Boom Scorecard". You receive the output of a simple statistical forecast for eight \
 industry indices (each an equal-weight basket of five large companies, indexed to 100 in October \
-2022) plus the S&P 500. The model takes daily log returns over a lookback window, estimates a drift \
-and a volatility, and projects a lognormal cone forward. You also receive each industry's total \
-return since ChatGPT launched.
+2022) plus the S&P 500. The model takes daily log returns over a lookback window, estimates a \
+drift and a volatility, and projects a lognormal cone forward. The drift is always damped to \
+half of its historical value - a fixed choice, not something the viewer selects - since a trend \
+estimated from a few years of daily returns is too weak a signal to extrapolate at full strength. \
+You also receive each industry's total return since ChatGPT launched.
 
 Write an outlook in Markdown with exactly these section headings, in this order:
 ## Big picture
@@ -55,9 +61,9 @@ Write an outlook in Markdown with exactly these section headings, in this order:
 Rules:
 - In "Industry by industry" use one bullet per industry, in the order given, each citing the \
 median projected change and the 10th-90th percentile range from the data.
-- Explain in plain language what drives the numbers: the drift assumption and the volatility.
-- Name where the extrapolation is most likely to break (for example a trend that already \
-reversed, or a range so wide the median is not informative).
+- Explain in plain language what drives the numbers: the damped drift and the volatility.
+- Name where the projection is most likely to mislead (for example a trend that has already \
+reversed since the lookback window, or a range so wide the median is not informative).
 - This is educational analysis, not investment advice. Keep the response under 500 words. \
 No preamble before the first heading."""
 

@@ -2,6 +2,9 @@
 
 The download takes a while, so the prices are saved to a pickle file in cache/
 and re-downloaded only when the date changes.
+
+We used AI in this section to translate what we had in our previous project and convert over this yfinance data in a form that can be usable as a helper function for the rest of the code 
+
 """
 import datetime as dt
 

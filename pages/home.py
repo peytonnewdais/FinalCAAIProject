@@ -3,6 +3,10 @@
 The small trend lines on the tiles and the big one behind the heading are drawn
 as SVG by hand (see sparkline below) rather than with Plotly, because they carry
 no axes or labels and only need to be a shape.
+
+
+Used Claude to help with styling on our page and speed up our workflow of fetching general information for this page.
+Asad with the help of AI created the home page stock styling in the back.  
 """
 import base64
 

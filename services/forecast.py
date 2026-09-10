@@ -1,9 +1,14 @@
 """A simple statistical forecast for each industry index.
 
 Idea: take the daily log returns over a recent window, get their average (the
-drift) and their standard deviation (the volatility), then assume the future
-price keeps drifting at that rate with that much random noise. That gives a
-"cone" of possible paths, which we describe with five percentiles.
+trend) and their standard deviation (the volatility), then project the future
+as that trend plus that much random noise. That gives a "cone" of possible
+paths, which we describe with five percentiles.
+
+
+
+Used AI to help us with the equation and creation of the forecasting function and reviewed over it. We dug into other methods it used initially and decided that Brownian motion was the best decision for the project.
+While it does look complicated, the forecasting is simply using existing equations and capturing that data to show the trend line and confidence intervals
 """
 from statistics import NormalDist
 
@@ -15,16 +20,14 @@ from .config import BOOM_START
 TRADING_DAYS = 252
 DAYS_PER_MONTH = 21
 
-# The three drift assumptions offered on the page, and how much of the
-# historical trend each one keeps.
-DRIFT_MODES = {
-    "historical": "Historical trend",
-    "half": "Half of historical trend",
-    "zero": "No trend (random walk)",
-}
-DRIFT_SCALE = {"historical": 1.0, "half": 0.5, "zero": 0.0}
+# The trend is the shakiest input - a few years of daily returns is a weak bet on the
+# future - so rather than extrapolate it at full strength (or drop it to zero), the model
+# always damps it to half. This is fixed, not a user choice: the page used to offer
+# "historical / half / no trend" as a control, but that just moved the guesswork onto
+# whoever was clicking the button. Half is the one defensible middle ground.
+DRIFT_SCALE = 0.5
 
-# How far back to look when measuring drift and volatility.
+# How far back to look when measuring trend and volatility.
 LOOKBACKS = {"1y": "Last 1 year", "2y": "Last 2 years", "boom": "Since ChatGPT launch"}
 LOOKBACK_DAYS = {"1y": TRADING_DAYS, "2y": 2 * TRADING_DAYS, "boom": None}
 
@@ -33,7 +36,7 @@ QUANTILES = {"p10": 0.10, "p25": 0.25, "p50": 0.50, "p75": 0.75, "p90": 0.90}
 Z_SCORES = {name: NormalDist().inv_cdf(q) for name, q in QUANTILES.items()}
 
 
-def forecast_series(series, horizon_months, lookback, drift_mode):
+def forecast_series(series, horizon_months, lookback):
     """Forecast one index. Returns (percentile paths, summary numbers)."""
     s = series.dropna()
 
@@ -41,8 +44,8 @@ def forecast_series(series, horizon_months, lookback, drift_mode):
     window = s.iloc[-days:] if days else s.loc[BOOM_START:]
     log_returns = np.log(window).diff().dropna()
 
-    mu = float(log_returns.mean()) * DRIFT_SCALE[drift_mode]     # drift per day
-    sigma = float(log_returns.std())                             # volatility per day
+    mu = float(log_returns.mean()) * DRIFT_SCALE     # trend per day, damped to half
+    sigma = float(log_returns.std())                 # volatility per day
     today_value = float(s.iloc[-1])
     horizon_days = horizon_months * DAYS_PER_MONTH
 
@@ -78,7 +81,7 @@ def prob_higher(mu, sigma, days):
     return 1 - NormalDist().cdf(-mu * days / (sigma * np.sqrt(days)))
 
 
-def forecast_all(index, horizon_months, lookback, drift_mode):
+def forecast_all(index, horizon_months, lookback):
     """Run forecast_series on every column of the industry index table."""
-    return {name: forecast_series(index[name], horizon_months, lookback, drift_mode)
+    return {name: forecast_series(index[name], horizon_months, lookback)
             for name in index.columns}

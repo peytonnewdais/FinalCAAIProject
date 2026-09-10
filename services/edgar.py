@@ -3,6 +3,9 @@
 Steps: ticker -> CIK number -> list of 10-K / 20-F filings -> download the HTML
 -> strip the tags -> count AI words. Everything downloaded is saved in
 cache/edgar so a company is only fetched once.
+
+
+We used AI to understand and use the edgar endpoitns. 
 """
 import json
 import re

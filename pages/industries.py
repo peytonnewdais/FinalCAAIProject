@@ -1,4 +1,10 @@
-"""Industries page: the main chart of industry indices, plus a scorecard bar chart."""
+"""Industries page: the main chart of industry indices, plus a scorecard bar chart.
+
+This is essentially a copy of the main page of our previous dash app project, we were able to use AI to
+move it over into this project and refactor it with the other code.
+
+
+"""
 import dash
 import pandas as pd
 import plotly.graph_objects as go

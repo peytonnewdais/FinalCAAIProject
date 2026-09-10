@@ -1,0 +1,3 @@
+AI was used throughout this project in brainstorming, generating much of the code, and sometimes managing pull requests. All AI generated code and text was generated with claude or claude code, either in th terminal or the VScode extension. 
+AI usage is noted at the top of each file, but generally AI helped us refactor and format our repository, create a base page to work off of, and help us turn our ideas into code. 
+We have reviewed, edited, and gone through lots of work to make sure we understand the functionality of our code. 

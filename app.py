@@ -2,6 +2,8 @@
 
 Pages are in the pages/ folder, data and API code is in the services/ folder.
 Run it with:  python app.py
+
+Used AI to compile everything for the app file in the project.
 """
 from dash import Dash, Input, Output, State, dcc, html, page_container
 

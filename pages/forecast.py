@@ -1,4 +1,12 @@
-"""Forecast page: a cone of possible futures for each industry index."""
+"""Forecast page: a cone of possible futures for each industry index.
+
+This page mainly holds the formatting which claude helped us develop, but also holds the update functions as well 
+which we definitely needed help developing. Lastly we had claude create a button to generate a claude summary on this information. 
+At one point this included all of the forecasting functions, but we eventually had claude refactor it out to make the page designs more simple. 
+
+
+
+"""
 import dash
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html

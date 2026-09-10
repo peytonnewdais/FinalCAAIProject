@@ -242,6 +242,42 @@ table.data th.num {
     overflow-x: auto;
 }
 
+/* --- loading spinner ----------------------------------------------- */
+
+.loading-note {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 0;
+    color: #6b6a65;
+    font-size: 15px;
+}
+
+/* A ring with one side coloured in; spinning it makes the coloured part
+   chase its own tail, which is the loop you see. */
+.spinner {
+    width: 22px;
+    height: 22px;
+    border: 3px solid #ddddd6;
+    border-top-color: #1f73d0;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Anyone who asks their system to reduce motion gets a pulse instead of a spin. */
+@media (prefers-reduced-motion: reduce) {
+    .spinner {
+        animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+        50% { opacity: 0.35; }
+    }
+}
+
 /* --- notices ------------------------------------------------------- */
 
 .notice {

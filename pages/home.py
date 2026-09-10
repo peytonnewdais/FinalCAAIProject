@@ -3,6 +3,9 @@
 The small trend lines on the tiles and the big one behind the heading are drawn
 as SVG by hand (see sparkline below) rather than with Plotly, because they carry
 no axes or labels and only need to be a shape.
+
+
+Used Claude to help with styling on our page and speed up our workflow of putting general information on this page. 
 """
 import base64
 
@@ -163,7 +166,7 @@ def layout():
                 html.Li("Daily prices come from Yahoo Finance and are cached once a day."),
                 html.Li("Each industry index is the average of its five rebased stocks."),
                 html.Li("For any two companies we pull their last five annual reports from SEC "
-                        "EDGAR and count the AI words, and read R&D spending from XBRL."),
+                        "EDGAR and count the AI words."),
                 html.Li("Claude reads those counts, the filing excerpts and the returns, and "
                         "writes the comparison."),
                 html.Li("Forecasts measure a trend and a volatility, then project a cone forward."),

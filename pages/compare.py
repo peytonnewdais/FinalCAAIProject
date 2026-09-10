@@ -25,14 +25,13 @@ from services.market_data import period_start, price_stats, rebase, ticker_serie
 
 dash.register_page(__name__, path="/compare", name="Compare Stocks")
 
-# Every company in the project, grouped by industry in the label.
 OPTIONS = [{"label": f"{t} - {config.COMPANY_NAMES[t]} ({industry})", "value": t}
            for industry, tickers in config.INDUSTRIES.items() for t in tickers]
 
 COLOR_A = "#1f73d0"
 COLOR_B = "#eb6834"
 
-
+# initialize tiles for comparison
 def tile(label, value, sub, color=""):
     """One small box showing a single number."""
     return html.Div(className="tile", children=[
@@ -41,7 +40,7 @@ def tile(label, value, sub, color=""):
         html.Div(sub, className="sub"),
     ])
 
-
+#Compute numbers as a percentage 
 def percent(value):
     """Format a number as a percentage, or 'n/a' when it is missing."""
     return "n/a" if value is None else f"{value:+,.1f}%"
@@ -57,9 +56,9 @@ def layout():
     return html.Div([
         html.H1("Compare two stocks: AI adoption versus the share price"),
         html.P("We download each company's last five annual reports (10-K or 20-F) from SEC "
-               "EDGAR, count how often they discuss artificial intelligence, pull R&D spending "
-               "from XBRL, and set that against the total return over the period you choose. "
-               "Claude then writes the comparison from those numbers."),
+               "EDGAR, count how often they discuss artificial intelligence, and set that "
+               "against the total return over the period you choose. Claude then writes the "
+               "comparison from those numbers."),
 
         html.Div(className="card", children=[
             html.Div(className="controls", children=[
@@ -91,6 +90,25 @@ def layout():
         # and toggles rd-card's visibility; write_summary fills claude-summary. Wrapping the
         # charts in dcc.Loading is what shows a spinner during the slow first fetch.
         dcc.Store(id="analysis"),          # holds the results between callbacks
+        # Pressing Analyze downloads filings from EDGAR, which is the slow part.
+        # This dcc.Loading wraps that callback's own outputs, so the spinner shows
+        # up the moment the button is pressed and stays until the data is back.
+        # The charts further down have their own spinner, but they only redraw
+        # from the store, which is fast.
+        # custom_spinner replaces the default dot with the spinning ring from
+        # styles.css plus a line saying what is actually happening, because the
+        # EDGAR download is long enough that a bare dot looks like a hang.
+        dcc.Loading(
+            delay_show=200,
+            custom_spinner=html.Div(className="loading-note", children=[
+                html.Span(className="spinner"),
+                "Reading annual reports from SEC EDGAR...",
+            ]),
+            children=[
+                dcc.Store(id="analysis"),   # holds the results between callbacks
+                html.Div(id="analyze-status", className="muted small"),
+            ],
+        ),
         html.Div(id="error-message"),
 
         dcc.Loading(children=[
@@ -104,7 +122,6 @@ def layout():
                        "report and scaled to a rate per 10,000 words, so reports of different "
                        "lengths can be compared.", className="muted small"),
             ]),
-            html.Div(id="rd-card", className="card", children=dcc.Graph(id="rd-chart")),
         ]),
 
         html.Div(className="card", children=[
@@ -130,24 +147,27 @@ def layout():
 @callback(
     Output("analysis", "data"),
     Output("error-message", "children"),
+    Output("analyze-status", "children"),
     Input("analyze", "n_clicks"),
     State("stock-a", "value"),
     State("stock-b", "value"),
     State("period", "value"),
 )
+
+# Takes the calls the edgar api to compare AI usage between both functions and 
 def run_analysis(n_clicks, ticker_a, ticker_b, period):
     """Fetch the filings and the price statistics for both companies."""
     if ticker_a == ticker_b:
-        return None, html.Div("Pick two different companies.", className="notice error")
+        return None, html.Div("Pick two different companies.", className="notice error"), ""
 
     start = period_start(period)
     try:
         profile_a = edgar.company_ai_profile(ticker_a)
         profile_b = edgar.company_ai_profile(ticker_b)
     except edgar.EdgarError as error:
-        return None, html.Div(f"SEC EDGAR problem: {error}", className="notice error")
+        return None, html.Div(f"SEC EDGAR problem: {error}", className="notice error"), ""
     except Exception as error:                     # a dropped connection, a broken filing
-        return None, html.Div(f"Could not analyze filings: {error}", className="notice error")
+        return None, html.Div(f"Could not analyze filings: {error}", className="notice error"), ""
 
     return {
         "a": ticker_a,
@@ -160,7 +180,7 @@ def run_analysis(n_clicks, ticker_a, ticker_b, period):
             ticker_b: price_stats(ticker_b, start),
             config.BENCHMARK_TICKER: price_stats(config.BENCHMARK_TICKER, start),
         },
-    }, None
+    }, None, f"Analyzed {ticker_a} and {ticker_b} - {config.PERIODS[period]}."
 
 # Pure render stage: no fetching, just reads the "analysis" store that run_analysis filled
 # and redraws on every change. All six outputs are returned in order on every path - the
@@ -170,11 +190,11 @@ def run_analysis(n_clicks, ticker_a, ticker_b, period):
     Output("compare-tiles", "children"),
     Output("price-chart", "figure"),
     Output("mentions-chart", "figure"),
-    Output("rd-chart", "figure"),
-    Output("rd-card", "style"),
     Output("filings-table", "children"),
     Input("analysis", "data"),
 )
+
+#creates the chart comparing the usage between the two 
 def show_results(data):
     """Draw everything from the stored analysis."""
     # data is None on first load and whenever run_analysis hit an error, so bail with a
@@ -187,7 +207,7 @@ def show_results(data):
         blank.update_xaxes(visible=False)
         blank.update_yaxes(visible=False)
         blank.update_layout(plot_bgcolor="white", paper_bgcolor="white", height=320)
-        return [], blank, blank, blank, {"display": "none"}, None
+        return [], blank, blank, None
 
     a, b = data["a"], data["b"]
     profile_a, profile_b = data["profiles"][a], data["profiles"][b]
@@ -222,6 +242,7 @@ def show_results(data):
     # data["start"] off the cached price history. The benchmark is drawn last, dashed and
     # grey, and gets its label from the get() fallback since "SPY" is not in COMPANY_NAMES.
     # The y=100 line marks the starting level; "x unified" hover lines all three up by date.
+    # --- share prices, all three rebased to 100 so they can share one axis 
     price_fig = go.Figure()
     for ticker, color in [(a, COLOR_A), (b, COLOR_B), (config.BENCHMARK_TICKER, "#33322f")]:
         series = rebase(ticker_series(ticker, pd.Timestamp(data["start"])))
@@ -259,40 +280,15 @@ def show_results(data):
     mentions_fig.update_yaxes(title="Mentions per 10,000 words", rangemode="tozero",
                               gridcolor="#e1e0d9")
 
-    # --- R&D spending, only for companies that actually report it
-    # A company with no rd_pct_of_revenue in any filing is skipped, not drawn as an empty
-    # line. has_rd tracks whether either company had data; it's returned to hide the whole
-    # rd-card when neither did (banks, for one, don't report R&D).
-    rd_fig = go.Figure()
-    has_rd = False
-    for profile, color in [(profile_a, COLOR_A), (profile_b, COLOR_B)]:
-        points = [(f["fiscal_year"], f["financials"]["rd_pct_of_revenue"])
-                  for f in profile["filings"]
-                  if f.get("financials") and f["financials"].get("rd_pct_of_revenue")]
-        if not points:
-            continue
-        has_rd = True
-        rd_fig.add_trace(go.Scatter(
-            x=[f"FY{year}" for year, _ in points], y=[value for _, value in points],
-            name=f"{profile['ticker']} - {profile['name']}", mode="lines+markers",
-            line=dict(color=color, width=2), marker=dict(size=9),
-        ))
-    rd_fig.update_layout(title="R&D spending as a share of revenue",
-                         plot_bgcolor="white", paper_bgcolor="white", height=340,
-                         legend=dict(orientation="h", y=-0.2))
-    rd_fig.update_yaxes(title="R&D as % of revenue", rangemode="tozero", gridcolor="#e1e0d9")
-
     # --- one row per filing we read, all of company A's years then all of company B's
-    # (not paired by year - the two companies can have different filing histories). A filing
-    # may have no "financials" block, so rd falls back to "n/a". The "num" class right-aligns
-    # numeric cells; the header loop below tags columns 4+ with it to match.
+    # (not paired by year - the two companies can have different filing histories). The
+    # "num" class right-aligns numeric cells; the header loop below tags columns 4+ with
+    # it to match.
     header = ["Company", "Fiscal year", "Form", "Filed", "Words", "AI mentions",
-              "Per 10k words", "R&D % of revenue", "Source"]
+              "Per 10k words", "Source"]
     rows = []
     for profile in [profile_a, profile_b]:
         for f in profile["filings"]:
-            money = f.get("financials") or {}
-            rd = money.get("rd_pct_of_revenue")
             rows.append(html.Tr([
                 html.Td(f"{profile['ticker']} - {profile['name']}"),
                 html.Td(f"FY{f['fiscal_year']}"),
@@ -301,7 +297,6 @@ def show_results(data):
                 html.Td(f"{f['word_count']:,}", className="num"),
                 html.Td(f"{f['ai_mentions']:,}", className="num"),
                 html.Td(f"{f['mentions_per_10k_words']:,.1f}", className="num"),
-                html.Td("n/a" if rd is None else f"{rd:.1f}%", className="num"),
                 html.Td(html.A("Open on EDGAR", href=f["url"], target="_blank")),
             ]))
 
@@ -312,8 +307,7 @@ def show_results(data):
         html.Tbody(rows),
     ])
 
-    return (tiles, price_fig, mentions_fig, rd_fig,
-            {} if has_rd else {"display": "none"}, table)
+    return tiles, price_fig, mentions_fig, table
 
 
 # The only network call on this page after run_analysis. It re-runs whenever

@@ -3,6 +3,8 @@
 
 AI usage: we used AI to develop this function faster; however, AI's role was mainly to help us refactor the site as a whole which 
 is why this function has its own file. Much of this code is recycled from our previous dash project. 
+
+Used AI for colorblind mode
 """
 from __future__ import annotations
 
@@ -71,6 +73,38 @@ COLORS = ["#1f73d0", "#eb6834", "#00a571", "#c88200",
           "#d96e97", "#008300", "#4a3aa7", "#e34948"]
 INDUSTRY_COLORS = dict(zip(INDUSTRIES, COLORS))
 INDUSTRY_COLORS[BENCHMARK] = "#33322f"
+
+# Colorblind-safe palette (Okabe-Ito, designed to stay distinguishable under
+# the common forms of color vision deficiency), used in place of COLORS/
+# COLORS_A_B/up-down colors when the navbar's "Colorblind mode" toggle is on.
+# The benchmark keeps its neutral gray in both palettes - it is always drawn
+# dashed, so it never needs to be picked out by color alone.
+COLORS_CB = ["#0072B2", "#E69F00", "#009E73", "#F0E442",
+             "#56B4E9", "#D55E00", "#CC79A7", "#000000"]
+INDUSTRY_COLORS_CB = dict(zip(INDUSTRIES, COLORS_CB))
+INDUSTRY_COLORS_CB[BENCHMARK] = "#33322f"
+
+# The Compare page's two-stock charts, and the up/down colors used for
+# gain/loss tiles and table cells everywhere.
+PAIR_COLORS = ("#1f73d0", "#eb6834")
+PAIR_COLORS_CB = ("#0072B2", "#E69F00")
+UP_DOWN_COLORS = ("#0a7a2f", "#c4302b")
+UP_DOWN_COLORS_CB = ("#0072B2", "#D55E00")
+
+
+def industry_colors(colorblind=False):
+    """The industry -> color mapping to draw with, picked by the navbar toggle."""
+    return INDUSTRY_COLORS_CB if colorblind else INDUSTRY_COLORS
+
+
+def pair_colors(colorblind=False):
+    """The (stock A, stock B) colors for the Compare page's two-series charts."""
+    return PAIR_COLORS_CB if colorblind else PAIR_COLORS
+
+
+def updown_colors(colorblind=False):
+    """The (up, down) colors for gain/loss numbers drawn outside a CSS class."""
+    return UP_DOWN_COLORS_CB if colorblind else UP_DOWN_COLORS
 
 EVENTS = [
     ("2022-11-30", "ChatGPT launches"),

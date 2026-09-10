@@ -67,4 +67,4 @@ cache/                  downloaded prices, filings and Claude answers
 - **Claude**: `claude-opus-5` through the `anthropic` package, writing the comparison on the
   compare page and the outlook on the forecast page.
 
-Educational project, not investment advice.
+Educational project, not investment advice. Many parts of this project and this README were AI generated

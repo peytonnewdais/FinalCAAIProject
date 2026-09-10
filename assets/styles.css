@@ -1,4 +1,8 @@
-/* Stylesheet for the AI Boom Scorecard dashboard */
+/* Stylesheet for the AI Boom Scorecard dashboard 
+Used AI for color styling and colorblind palet. 
+
+
+*/
 
 body {
     margin: 0;
@@ -32,6 +36,10 @@ h3 {
 .navbar {
     background: #1d2a30;
     padding: 15px 30px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
 }
 
 .navbar a {
@@ -49,6 +57,31 @@ h3 {
 .brand {
     font-weight: bold;
     font-size: 20px;
+}
+
+/* --- colorblind mode toggle ----------------------------------------- */
+
+.colorblind-toggle {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid #4b5c64;
+    color: #e0e9ee;
+    border-radius: 5px;
+    padding: 7px 14px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.colorblind-toggle:hover {
+    border-color: #ffffff;
+}
+
+/* aria-pressed is what the toggle callback flips (see app.py), so the
+   highlighted state always matches what is actually applied to the page. */
+.colorblind-toggle[aria-pressed="true"] {
+    background: #3f6ad8;
+    border-color: #3f6ad8;
+    color: #ffffff;
 }
 
 /* --- home page banner ---------------------------------------------- */
@@ -141,6 +174,25 @@ h3 {
 
 .down {
     color: #c4302b;
+}
+
+/* Colorblind mode swaps the red/green up-down pair for blue/orange, which
+   stays distinguishable under the common forms of color vision deficiency.
+   The numbers themselves already carry a +/- sign, so color here is a second
+   signal, not the only one - but the chart palette (services/config.py) is
+   the one place color alone tells two series apart, which is why the pages'
+   callbacks take the same toggle as an Input and redraw with industry_colors()
+   / pair_colors() / updown_colors() instead of relying on CSS. */
+body.colorblind .up {
+    color: #0072b2;
+}
+
+body.colorblind .down {
+    color: #d55e00;
+}
+
+body.colorblind .notice.error {
+    border-left-color: #d55e00;
 }
 
 .muted {

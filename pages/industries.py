@@ -3,7 +3,7 @@
 This is essentially a copy of the main page of our previous dash app project, we were able to use AI to
 move it over into this project and refactor it with the other code.
 
-
+Used AI for colorblind mode
 """
 import dash
 import pandas as pd
@@ -18,13 +18,14 @@ dash.register_page(__name__, path="/industries", name="Industries")
 YEARS = years()
 
 
-def scorecard_figure():
-    """The bar chart of total returns. It has no controls, so it is built once."""
+def scorecard_figure(colorblind=False):
+    """The bar chart of total returns. Its only "control" is the colorblind toggle."""
     scores = scorecard()
+    colors = config.industry_colors(colorblind)
 
     fig = go.Figure(go.Bar(
         x=scores.values, y=scores.index, orientation="h",
-        marker_color=[config.INDUSTRY_COLORS[name] for name in scores.index],
+        marker_color=[colors[name] for name in scores.index],
         text=[f"{v:+,.0f}%" for v in scores.values], textposition="outside",
         cliponaxis=False,
     ))
@@ -71,7 +72,7 @@ def layout():
             html.H3("The whole boom in one chart"),
             html.P("Total return of each industry index from ChatGPT's launch to the latest "
                    "close.", className="muted"),
-            dcc.Graph(figure=scorecard_figure(), style={"height": "460px"}),
+            dcc.Graph(id="scorecard-chart", style={"height": "460px"}),
             html.P("Semiconductors climbed to roughly ten times its starting value while the "
                    "S&P 500 roughly doubled. IT services and content businesses lost a large "
                    "share of their value. The gains were concentrated, not shared."),
@@ -86,21 +87,31 @@ def layout():
 
 
 @callback(
+    Output("scorecard-chart", "figure"),
+    Input("colorblind-mode", "data"),
+)
+def render_scorecard(colorblind):
+    return scorecard_figure(bool(colorblind))
+
+
+@callback(
     Output("industry-chart", "figure"),
     Input("industry-picker", "value"),
     Input("year-slider", "value"),
+    Input("colorblind-mode", "data"),
 )
-def update_chart(industries, year_range):
+def update_chart(industries, year_range, colorblind):
     # The S&P 500 is always shown, so the picked industries have something to beat.
     columns = list(industries or []) + [config.BENCHMARK]
     window = industry_index().loc[str(year_range[0]):str(year_range[1])]
     data = rebase(window[columns])               # restart every line at 100
+    colors = config.industry_colors(colorblind)
 
     fig = go.Figure()
     for name in columns:
         fig.add_trace(go.Scatter(
             x=data.index, y=data[name], name=name, mode="lines",
-            line=dict(color=config.INDUSTRY_COLORS[name], width=2,
+            line=dict(color=colors[name], width=2,
                       dash="dash" if name == config.BENCHMARK else "solid"),
         ))
 

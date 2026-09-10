@@ -8,7 +8,7 @@ stores the results in a dcc.Store, and the charts below read from that store.
 AI used for much of the formatting and the original compare function. Running the analysis and 
 creating building our plotly graphs. Made sure that the API endpoints are used correctly 
 We also used it to help us understand caching and to cache the information so it can be accessed quickly after.
-
+Used AI for colorblind mode
 """
 import dash
 import pandas as pd
@@ -22,9 +22,6 @@ dash.register_page(__name__, path="/compare", name="Compare Stocks")
 
 OPTIONS = [{"label": f"{t} - {config.COMPANY_NAMES[t]} ({industry})", "value": t}
            for industry, tickers in config.INDUSTRIES.items() for t in tickers]
-
-COLOR_A = "#1f73d0"
-COLOR_B = "#eb6834"
 
 # initialize tiles for comparison
 def tile(label, value, sub, color=""):
@@ -155,11 +152,13 @@ def run_analysis(n_clicks, ticker_a, ticker_b, period):
     Output("mentions-chart", "figure"),
     Output("filings-table", "children"),
     Input("analysis", "data"),
+    Input("colorblind-mode", "data"),
 )
 
-#creates the chart comparing the usage between the two 
-def show_results(data):
+#creates the chart comparing the usage between the two
+def show_results(data, colorblind):
     """Draw everything from the stored analysis."""
+    color_a, color_b = config.pair_colors(colorblind)
     if not data:
         blank = go.Figure()
         blank.add_annotation(text="Press Analyze to see results", showarrow=False,
@@ -194,7 +193,7 @@ def show_results(data):
 
     # --- share prices, all three rebased to 100 so they can share one axis 
     price_fig = go.Figure()
-    for ticker, color in [(a, COLOR_A), (b, COLOR_B), (config.BENCHMARK_TICKER, "#33322f")]:
+    for ticker, color in [(a, color_a), (b, color_b), (config.BENCHMARK_TICKER, "#33322f")]:
         series = rebase(ticker_series(ticker, pd.Timestamp(data["start"])))
         price_fig.add_trace(go.Scatter(
             x=series.index, y=series.values, mode="lines",
@@ -210,7 +209,7 @@ def show_results(data):
 
     # --- AI mentions per fiscal year, one pair of bars per year
     mentions_fig = go.Figure()
-    for profile, color in [(profile_a, COLOR_A), (profile_b, COLOR_B)]:
+    for profile, color in [(profile_a, color_a), (profile_b, color_b)]:
         mentions_fig.add_trace(go.Bar(
             x=[f"FY{f['fiscal_year']}" for f in profile["filings"]],
             y=[f["mentions_per_10k_words"] for f in profile["filings"]],

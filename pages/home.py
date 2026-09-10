@@ -7,11 +7,12 @@ no axes or labels and only need to be a shape.
 
 Used Claude to help with styling on our page and speed up our workflow of fetching general information for this page.
 Asad with the help of AI created the home page stock styling in the back.  
+Used AI for colorblind mode
 """
 import base64
 
 import dash
-from dash import dcc, html
+from dash import Input, Output, callback, dcc, html
 
 from services import config
 from services.market_data import industry_index, last_updated, rebase, scorecard
@@ -30,10 +31,6 @@ CARDS = [
      "A drift-and-volatility cone for every industry index, plus a Claude outlook on what "
      "the numbers do and do not say."),
 ]
-
-WIN_GREEN = "#0a7a2f"
-LOSE_RED = "#c4302b"
-
 
 def thin_out(series, count=44):
     """Keep about `count` evenly spaced points. A sparkline needs a shape, not every day."""
@@ -82,13 +79,13 @@ def banner_chart():
     )
 
 
-def tile(label, value, sub, color="", spark=None):
+def tile(label, value, sub, color="", spark=None, spark_id=None):
     """One small box showing a single number, optionally with a trend line beside it."""
     number = html.Div(value, className=f"value {color}")
     if spark:
         number = html.Div(className="value-row", children=[
             number,
-            html.Img(src=spark, className="tile-spark", alt=""),   # decorative only
+            html.Img(id=spark_id, src=spark, className="tile-spark", alt=""),  # decorative
         ])
     return html.Div(className="tile", children=[
         html.Div(label, className="label"),
@@ -105,8 +102,9 @@ def layout():
     benchmark = scores[config.BENCHMARK]
 
     index = industry_index()
-    best_spark = sparkline([(thin_out(rebase(index[best]), 30), WIN_GREEN, None)], stroke=2.4)
-    worst_spark = sparkline([(thin_out(rebase(index[worst]), 30), LOSE_RED, None)], stroke=2.4)
+    up_color, down_color = config.updown_colors()
+    best_spark = sparkline([(thin_out(rebase(index[best]), 30), up_color, None)], stroke=2.4)
+    worst_spark = sparkline([(thin_out(rebase(index[worst]), 30), down_color, None)], stroke=2.4)
 
     return html.Div([
         html.Div(className="banner", children=[
@@ -126,9 +124,9 @@ def layout():
 
         html.Div(className="tiles", children=[
             tile("Biggest winner since the boom", f"{industries[best]:+,.0f}%", best,
-                 "up", best_spark),
+                 "up", best_spark, spark_id="best-spark-img"),
             tile("Biggest loser since the boom", f"{industries[worst]:+,.0f}%", worst,
-                 "down", worst_spark),
+                 "down", worst_spark, spark_id="worst-spark-img"),
             tile("S&P 500 over the same stretch", f"{benchmark:+,.0f}%", "SPY",
                  "up" if benchmark > 0 else "down"),
             tile("Companies tracked", str(len(config.COMPANY_TICKERS)),
@@ -174,3 +172,25 @@ def layout():
             ]),
         ]),
     ])
+
+
+@callback(
+    Output("best-spark-img", "src"),
+    Output("worst-spark-img", "src"),
+    Input("colorblind-mode", "data"),
+)
+def recolor_sparklines(colorblind):
+    """Redraw the winner/loser sparklines when the navbar's colorblind toggle changes.
+
+    These are baked into a data: URI (see sparkline above), so unlike the CSS-driven
+    .up/.down text, they cannot just be recolored in place - they have to be rebuilt.
+    """
+    scores = scorecard()
+    industries = scores.drop(config.BENCHMARK)
+    best, worst = industries.idxmax(), industries.idxmin()
+    up_color, down_color = config.updown_colors(colorblind)
+
+    index = industry_index()
+    best_spark = sparkline([(thin_out(rebase(index[best]), 30), up_color, None)], stroke=2.4)
+    worst_spark = sparkline([(thin_out(rebase(index[worst]), 30), down_color, None)], stroke=2.4)
+    return best_spark, worst_spark

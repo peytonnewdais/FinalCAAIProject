@@ -6,7 +6,7 @@ just the page layout and the callbacks that redraw the chart and table.
 This page mainly holds the formatting which claude helped us develop, but also holds the update functions as well 
 which we definitely needed help developing. Lastly we had claude create a button to generate a claude summary on this information. 
 At one point this included all of the forecasting functions, but we eventually had claude refactor it out to make the page designs more simple. 
-
+Used AI for colorblind Mode. 
 
 
 """
@@ -130,11 +130,14 @@ def fade(hex_color, alpha):
     Input("view", "value"),
     Input("horizon", "value"),
     Input("lookback", "value"),
+    Input("colorblind-mode", "data"),
 )
-def update_forecast(view, horizon, lookback):
+def update_forecast(view, horizon, lookback, colorblind):
     index = industry_index()
     results = forecast_all(index, horizon, lookback)
     names = list(index.columns)
+    colors = config.industry_colors(colorblind)
+    up_color, down_color = config.updown_colors(colorblind)
 
     if view == "all":
         # One small chart per index, laid out in a 3x3 grid.
@@ -143,7 +146,7 @@ def update_forecast(view, horizon, lookback):
         for i, name in enumerate(names):
             paths, _ = results[name]
             history = index[name].iloc[-HISTORY_DAYS:]
-            add_cone(fig, history, paths, config.INDUSTRY_COLORS[name], name,
+            add_cone(fig, history, paths, colors[name], name,
                      row=i // 3 + 1, col=i % 3 + 1)
         fig.update_layout(title=f"{horizon}-month forecast for every index", showlegend=False)
         fig.update_annotations(font_size=12)
@@ -155,7 +158,7 @@ def update_forecast(view, horizon, lookback):
         paths, _ = results[view]
         history = index[view].iloc[-2 * HISTORY_DAYS:]
         fig = go.Figure()
-        add_cone(fig, history, paths, config.INDUSTRY_COLORS[view], view, legend=True)
+        add_cone(fig, history, paths, colors[view], view, legend=True)
         fig.update_layout(title=f"{view}: {horizon}-month forecast", hovermode="x unified",
                           legend=dict(orientation="h", y=-0.12),
                           yaxis_title=Y_AXIS_TITLE)
@@ -179,7 +182,7 @@ def update_forecast(view, horizon, lookback):
             html.Td(f"{s['ann_drift_pct']:+,.1f}%", className="num"),
             html.Td(f"{s['ann_vol_pct']:,.1f}%", className="num"),
             html.Td(f"{s['median_change_pct']:+,.1f}%", className="num",
-                    style={"color": "#0a7a2f" if s["median_change_pct"] > 0 else "#c4302b"}),
+                    style={"color": up_color if s["median_change_pct"] > 0 else down_color}),
             html.Td(f"{s['p10_change_pct']:+,.1f}%", className="num"),
             html.Td(f"{s['p90_change_pct']:+,.1f}%", className="num"),
             html.Td(f"{s['prob_gain_pct']}%", className="num"),

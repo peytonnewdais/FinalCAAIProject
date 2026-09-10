@@ -1,5 +1,5 @@
 # AI Boom Scorecard
-
+[Live On Render](https://aiboomscorecard.onrender.com/)
 **Team 8 - Peyton, Asad, Maya**
 
 > Over the past five years, which companies adapted around AI most successfully, and has the

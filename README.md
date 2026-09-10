@@ -64,7 +64,7 @@ cache/                  downloaded prices, filings and Claude answers
 - **AI mentions**: every occurrence of artificial intelligence, AI, machine learning,
   generative AI, large language model / LLM, deep learning and neural network, divided by the
   filing's word count and scaled to a rate per 10,000 words.
-- **Claude**: `claude-opus-5` through the `anthropic` package, writing the comparison on the
+- **Claude**: `claude-haiku-4-5` through the `anthropic` package, writing the comparison on the
   compare page and the outlook on the forecast page.
 
 Educational project, not investment advice. Many parts of this project and this README were AI generated

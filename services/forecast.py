@@ -4,6 +4,11 @@ Idea: take the daily log returns over a recent window, get their average (the
 trend) and their standard deviation (the volatility), then project the future
 as that trend plus that much random noise. That gives a "cone" of possible
 paths, which we describe with five percentiles.
+
+
+
+Used AI to help us with the equation and creation of the forecasting function and reviewed over it. We dug into other methods it used initially and decided that Brownian motion was the best decision for the project.
+While it does look complicated, the forecasting is simply using existing equations and capturing that data to show the trend line and confidence intervals
 """
 from statistics import NormalDist
 

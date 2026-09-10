@@ -10,6 +10,17 @@ creating building our plotly graphs. Made sure that the API endpoints are used c
 We also used it to help us understand caching and to cache the information so it can be accessed quickly after.
 
 """
+# --- AI assistance -----------------------------------------------------------
+# Tool: Claude (Claude Code).
+# Used on this file for:
+#   - Brainstorming the "AI adoption vs. share price" framing and the
+#     tile / chart / table layout.
+#   - Drafting the explanatory comment blocks throughout this file.
+#   - Wording help on chart titles and the "how this is counted" caption.
+# All AI output was reviewed, edited, and tested by the team. The EDGAR parsing,
+# callback wiring, and metric definitions were written and verified by us.
+# See docs/AI_USAGE.md for the project-wide summary.
+# ---------------------------------------------------------------------------
 import dash
 import pandas as pd
 import plotly.graph_objects as go
@@ -40,7 +51,13 @@ def percent(value):
     """Format a number as a percentage, or 'n/a' when it is missing."""
     return "n/a" if value is None else f"{value:+,.1f}%"
 
-# create page layout
+
+# Dash calls this on every visit to /compare, so the tree is rebuilt fresh each time and
+# holds no state - the dcc.Store(id="analysis") is where data lives between callbacks. Every
+# id here is a wiring point: the inputs stock-a / stock-b / period / analyze feed
+# run_analysis, and compare-tiles, price-chart, mentions-chart, rd-chart, rd-card,
+# filings-table, claude-summary and error-message are callback output targets that must all
+# exist in this tree or the callbacks raise. Defaults NVDA vs ACN are a cross-industry example.
 def layout():
     return html.Div([
         html.H1("Compare two stocks: AI adoption versus the share price"),
@@ -72,6 +89,21 @@ def layout():
                    "takes about 10-20 seconds. After that everything is cached.",
                    className="muted small"),
         ]),
+
+        # Output half of the page: empty containers the callbacks fill in. run_analysis
+        # writes the "analysis" store (or clears it and puts text in error-message on
+        # failure); show_results fills the tiles, three charts and the table off that store,
+        # and toggles rd-card's visibility; write_summary fills claude-summary. Wrapping the
+        # charts in dcc.Loading is what shows a spinner during the slow first fetch.
+        dcc.Store(id="analysis"),          # holds the results between callbacks
+        # Pressing Analyze downloads filings from EDGAR, which is the slow part.
+        # This dcc.Loading wraps that callback's own outputs, so the spinner shows
+        # up the moment the button is pressed and stays until the data is back.
+        # The charts further down have their own spinner, but they only redraw
+        # from the store, which is fast.
+        # custom_spinner replaces the default dot with the spinning ring from
+        # styles.css plus a line saying what is actually happening, because the
+        # EDGAR download is long enough that a bare dot looks like a hang.
         dcc.Loading(
             delay_show=200,
             custom_spinner=html.Div(className="loading-note", children=[
@@ -148,7 +180,10 @@ def run_analysis(n_clicks, ticker_a, ticker_b, period):
         },
     }, None, f"Analyzed {ticker_a} and {ticker_b} - {config.PERIODS[period]}."
 
-
+# Pure render stage: no fetching, just reads the "analysis" store that run_analysis filled
+# and redraws on every change. All six outputs are returned in order on every path - the
+# "no data yet" branch returns blank figures, a hidden rd-card, and an empty table. The
+# rd-card style is the toggle: {"display": "none"} when neither company reports R&D, else {}.
 @callback(
     Output("compare-tiles", "children"),
     Output("price-chart", "figure"),
@@ -160,6 +195,9 @@ def run_analysis(n_clicks, ticker_a, ticker_b, period):
 #creates the chart comparing the usage between the two 
 def show_results(data):
     """Draw everything from the stored analysis."""
+    # data is None on first load and whenever run_analysis hit an error, so bail with a
+    # placeholder figure (reused for all three charts), a hidden rd-card and an empty table.
+    # The six return values here must line up with the six Output()s above, in order.
     if not data:
         blank = go.Figure()
         blank.add_annotation(text="Press Analyze to see results", showarrow=False,
@@ -174,7 +212,11 @@ def show_results(data):
     stats = data["stats"]
     label = data["period_label"]
 
-    # --- the five tiles at the top
+    # --- the five tiles at the top: return for A, B and the S&P 500, then the AI-mention
+    # rate for A and B with the earliest year shown as a "was ... in FYxx" baseline.
+    # filings is assumed oldest-first, so [-1] is the newest report and [0] the oldest.
+    # total_return_pct can be absent (percent() then prints "n/a"); the up/down colour class
+    # treats a missing value as 0, i.e. "down". "SPY" is the literal benchmark key.
     latest_a, first_a = profile_a["filings"][-1], profile_a["filings"][0]
     latest_b, first_b = profile_b["filings"][-1], profile_b["filings"][0]
     tiles = [
@@ -192,6 +234,12 @@ def show_results(data):
              f"in FY{first_b['fiscal_year']}"),
     ]
 
+    # --- share prices, all three rebased to 100 so they can share one axis
+    # rebase() divides each series by its first value x100, so the chart shows growth
+    # relative to the period start, not dollar prices. ticker_series re-slices from
+    # data["start"] off the cached price history. The benchmark is drawn last, dashed and
+    # grey, and gets its label from the get() fallback since "SPY" is not in COMPANY_NAMES.
+    # The y=100 line marks the starting level; "x unified" hover lines all three up by date.
     # --- share prices, all three rebased to 100 so they can share one axis 
     price_fig = go.Figure()
     for ticker, color in [(a, COLOR_A), (b, COLOR_B), (config.BENCHMARK_TICKER, "#33322f")]:
@@ -209,6 +257,11 @@ def show_results(data):
     price_fig.update_yaxes(gridcolor="#e1e0d9")
 
     # --- AI mentions per fiscal year, one pair of bars per year
+    # One Bar trace per company; barmode="group" sets them side by side. The x values are
+    # "FYxxxx" category strings, not dates, so Plotly aligns bars by matching label and a
+    # year only one company filed just leaves a gap in that group. Same per-10k-words metric
+    # as the tiles. text/textposition print the value above each bar, cliponaxis=False keeps
+    # those labels from being clipped, and rangemode="tozero" keeps bar heights honest.
     mentions_fig = go.Figure()
     for profile, color in [(profile_a, COLOR_A), (profile_b, COLOR_B)]:
         mentions_fig.add_trace(go.Bar(
